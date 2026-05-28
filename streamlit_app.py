@@ -30,6 +30,7 @@ DECISION_LABELS = {
 }
 RISK_LABELS = {"LOW": "低", "MEDIUM": "中", "HIGH": "高", "CRITICAL": "严重"}
 STATUS_LABELS = {"OK": "正常", "WARN": "预警", "ERROR": "错误"}
+RULE_CLASS_LABELS = {"blocking_control": "阻断控制", "contextual_risk_signal": "上下文风险信号"}
 ARTIFACT_LABELS = {
     "erp_export": "ERP 导出",
     "spreadsheet": "表格附件",
@@ -67,11 +68,12 @@ st.markdown(
 def main() -> None:
     init_state()
     render_sidebar()
-    st.markdown('<div class="fintrace-title">FinTrace 企业级智能柔性费控 Agent</div>', unsafe_allow_html=True)
+    st.markdown('<div class="fintrace-title">FinTrace v0.1 批量费控 MVP</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="fintrace-subtitle">批量异构报销材料进入系统后，逐笔建立字段证据链、规则链、本体链、推理链和错误定位链。</div>',
+        '<div class="fintrace-subtitle">MVP 主链路：CSV/XLSX 批量导入 -> 字段溯源 -> 本地稳定模型/规则审查 -> 可解释结果导出。DeepSeek、红蓝评测和控制台是 v0.2 展示增强层。</div>',
         unsafe_allow_html=True,
     )
+    st.info("产品边界：FinTrace 先做批量初筛和错误定位，不替代 ERP、不直接自动放款、不让 LLM 覆盖阻断控制。")
 
     tabs = st.tabs(["批量处理台", "案件列表", "审计探针", "字段溯源", "规则调试台", "批量指标", "红蓝评测台", "迭代记录"])
     with tabs[0]:
@@ -196,13 +198,16 @@ def render_batch_metrics(result: dict) -> None:
     metrics = result.get("batch_metrics", {})
     decisions = metrics.get("decision_counts", {})
     case_count = metrics.get("case_count", 0) or 1
-    cols = st.columns(6)
+    cols = st.columns(7)
     cols[0].metric("案件数", metrics.get("case_count", 0))
-    cols[1].metric("通过率", f"{(decisions.get('APPROVE', 0) + decisions.get('APPROVE_WITH_FLEX', 0)) / case_count:.1%}")
-    cols[2].metric("人工复核率", f"{decisions.get('MANUAL_REVIEW', 0) / case_count:.1%}")
-    cols[3].metric("拒绝率", f"{decisions.get('REJECT', 0) / case_count:.1%}")
-    cols[4].metric("反舞弊率", f"{decisions.get('ESCALATE_FRAUD', 0) / case_count:.1%}")
-    cols[5].metric("平均节点耗时", f"{metrics.get('avg_node_latency_ms', 0)} ms")
+    cols[1].metric("成功案件", metrics.get("case_success_count", metrics.get("case_count", 0)))
+    cols[2].metric("失败案件", metrics.get("case_failed_count", 0))
+    cols[3].metric("通过率", f"{(decisions.get('APPROVE', 0) + decisions.get('APPROVE_WITH_FLEX', 0)) / case_count:.1%}")
+    cols[4].metric("人工复核率", f"{decisions.get('MANUAL_REVIEW', 0) / case_count:.1%}")
+    cols[5].metric("拒绝/升级率", f"{(decisions.get('REJECT', 0) + decisions.get('ESCALATE_FRAUD', 0)) / case_count:.1%}")
+    cols[6].metric("平均节点耗时", f"{metrics.get('avg_node_latency_ms', 0)} ms")
+    if metrics.get("partial_failure_policy"):
+        st.caption(f"部分失败策略：{metrics.get('partial_failure_policy')}")
     chart_df = pd.DataFrame({"决策": [DECISION_LABELS.get(k, k) for k in decisions], "数量": list(decisions.values())})
     if not chart_df.empty:
         st.bar_chart(chart_df, x="决策", y="数量", color="#2f80ed")
@@ -238,7 +243,7 @@ def case_explorer_tab() -> None:
         view.drop(columns=["error_types", "decision", "risk_level"]),
         use_container_width=True,
         hide_index=True,
-        column_order=["case_id", "decision_cn", "risk_level_cn", "amount", "expense_type", "employee_name", "department", "vendor", "invoice_no", "confidence", "reason"],
+        column_order=["case_id", "decision_cn", "risk_level_cn", "amount", "expense_type", "employee_name", "department", "vendor", "invoice_no", "confidence", "guardrail_status", "reason"],
     )
 
 
@@ -259,6 +264,8 @@ def audit_probe_tab() -> None:
         unsafe_allow_html=True,
     )
     st.caption(decision.get("reason", ""))
+    if decision.get("guardrail_status"):
+        st.caption(f"门控状态：{decision.get('guardrail_status')} | 人工复核原因：{decision.get('manual_review_reason', '')}")
 
     left, right = st.columns([0.44, 0.56], gap="large")
     with left:
@@ -327,11 +334,14 @@ def rule_debugger_tab() -> None:
         st.markdown("#### 建议定位")
         st.info(debug_recommendation(case))
     with c2:
-        st.markdown("#### 命中规则")
+        st.markdown("#### 命中控制 / 风险信号")
         if hits:
-            st.dataframe(pd.DataFrame(hits), use_container_width=True, hide_index=True)
+            hit_df = pd.DataFrame(hits)
+            if "rule_class" in hit_df:
+                hit_df["rule_class_cn"] = hit_df["rule_class"].map(lambda v: RULE_CLASS_LABELS.get(v, v))
+            st.dataframe(hit_df, use_container_width=True, hide_index=True)
         else:
-            st.success("未命中硬规则。")
+            st.success("未命中阻断控制或上下文风险信号。")
         st.markdown("#### 未命中规则")
         missed = missed_rules(hits)
         st.dataframe(pd.DataFrame(missed), use_container_width=True, hide_index=True)
@@ -339,8 +349,10 @@ def rule_debugger_tab() -> None:
         calls = case.get("context_info", {}).get("tool_calls", [])
         if calls:
             st.dataframe(pd.DataFrame(calls), use_container_width=True, hide_index=True)
+            st.markdown("#### 本体冷启动质量")
+            st.json(case.get("context_info", {}).get("context_quality", {}))
         else:
-            st.caption("该案件被硬规则直接拦截，未进入本体工具调用。")
+            st.caption("该案件被阻断控制直接拦截，未进入本体工具调用。")
 
 
 def batch_metrics_tab() -> None:
@@ -362,6 +374,8 @@ def batch_metrics_tab() -> None:
         node_df = pd.DataFrame({"节点": list(metrics.get("node_event_counts", {}).keys()), "事件数": list(metrics.get("node_event_counts", {}).values())})
         st.dataframe(node_df, use_container_width=True, hide_index=True)
         st.metric("节点失败数", metrics.get("node_failure_count", 0))
+        st.metric("失败案件数", metrics.get("case_failed_count", 0))
+        st.caption(metrics.get("partial_failure_policy", "部分失败策略未记录"))
     st.markdown("#### Top 错误源")
     render_error_registry(result)
 
@@ -467,6 +481,7 @@ def flatten_cases(result: dict) -> list[dict]:
                 "risk_level_cn": RISK_LABELS.get(decision.get("risk_level"), decision.get("risk_level")),
                 "confidence": decision.get("confidence"),
                 "reason": decision.get("reason"),
+                "guardrail_status": decision.get("guardrail_status"),
                 "employee_id": fields.get("employee_id"),
                 "employee_name": fields.get("employee_name"),
                 "department": fields.get("department"),
@@ -549,15 +564,20 @@ def render_error_registry(result: dict) -> None:
 def missed_rules(hits: list[dict]) -> list[dict[str, str]]:
     hit_ids = {h.get("rule_id") for h in hits}
     all_rules = {
-        "R001_MISSING_ORIGINAL": "缺少发票原件",
-        "R002_DUPLICATE_INVOICE": "重复发票号/哈希",
-        "R003_SPLIT_INVOICE": "疑似拆票",
-        "R004_ABSOLUTE_LIMIT": "金额超过静态标准",
-        "R005_VENDOR_BLACKLIST": "供应商黑名单",
-        "R006_CROSS_PERIOD": "跨期报销",
-        "R007_SIMILAR_INVOICE_NO": "高度相似发票号",
+        "R001_MISSING_ORIGINAL": ("缺少发票原件", "blocking_control"),
+        "R002_DUPLICATE_INVOICE": ("重复发票号/哈希", "blocking_control"),
+        "R003_SPLIT_INVOICE": ("疑似拆票", "contextual_risk_signal"),
+        "R004_ABSOLUTE_LIMIT": ("金额超过静态标准", "contextual_risk_signal"),
+        "R005_VENDOR_BLACKLIST": ("供应商黑名单", "blocking_control"),
+        "R006_CROSS_PERIOD": ("跨期报销", "contextual_risk_signal"),
+        "R007_SIMILAR_INVOICE_NO": ("高度相似发票号", "contextual_risk_signal"),
+        "R008_OCR_AMOUNT_CONFLICT": ("OCR 金额冲突", "contextual_risk_signal"),
     }
-    return [{"rule_id": rid, "规则": name, "状态": "未命中"} for rid, name in all_rules.items() if rid not in hit_ids]
+    return [
+        {"rule_id": rid, "规则": name, "规则分类": RULE_CLASS_LABELS.get(rule_class, rule_class), "状态": "未命中"}
+        for rid, (name, rule_class) in all_rules.items()
+        if rid not in hit_ids
+    ]
 
 
 def debug_recommendation(case: dict) -> str:
@@ -568,9 +588,15 @@ def debug_recommendation(case: dict) -> str:
     if errors:
         return "优先检查字段溯源：该案件存在字段缺失或字段冲突。"
     if hits:
-        return "优先检查规则命中：确认阈值、输入字段和计算过程是否符合企业制度。"
+        blocking = [h for h in hits if h.get("rule_class") == "blocking_control"]
+        if blocking:
+            return "优先检查阻断控制：这类规则可直接拒绝或升级，LLM 不允许覆盖。"
+        return "优先检查上下文风险信号：这些不是硬拒绝，但需要业务背景或人工复核。"
     if llm_meta.get("status") == "fallback":
         return "优先检查 LLM 调用：DeepSeek 未返回可用 JSON，系统已回退到本地模型。"
+    guardrail = reasoning.get("llm_guardrail_status", {})
+    if guardrail.get("status") and guardrail.get("status") != "local_baseline":
+        return "优先检查 LLM 门控：系统记录了 DeepSeek 是否被采纳、回退或转人工。"
     return "当前链路完整，可从本体工具调用和最终审计底稿确认放行原因。"
 
 

@@ -246,7 +246,7 @@ def build_label(row: dict[str, Any], scenario: str) -> dict[str, Any]:
         decision = Decision.MANUAL_REVIEW.value
         risk_type = scenario
     elif scenario == "ocr_amount_noise":
-        decision = Decision.APPROVE.value
+        decision = Decision.MANUAL_REVIEW.value
         risk_type = "OCR金额污染"
     elif scenario == "prompt_injection":
         decision = Decision.APPROVE.value

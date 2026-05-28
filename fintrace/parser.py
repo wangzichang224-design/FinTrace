@@ -75,6 +75,8 @@ def parse_case_fields(
             text_amount = safe_float(extracted["amount"])
             erp_amount = safe_float(fields["amount"])
             if erp_amount and abs(text_amount - erp_amount) / max(erp_amount, 1) > 0.2:
+                fields["amount_conflict_detected"] = True
+                fields["attachment_amount"] = text_amount
                 errors.append(
                     {
                         "category": "字段冲突",

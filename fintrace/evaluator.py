@@ -67,6 +67,7 @@ def evaluate_batch(batch_result: dict[str, Any], ground_truth_path: str | Path) 
     hard_tp = hard_fp = hard_fn = 0
     flex_total = flex_correct = 0
     field_total = field_correct = 0
+    manual_review_count = 0
     case_errors: list[dict[str, Any]] = []
     scenario_breakdown: dict[str, Counter[str]] = defaultdict(Counter)
 
@@ -78,6 +79,8 @@ def evaluate_batch(batch_result: dict[str, Any], ground_truth_path: str | Path) 
             continue
         actual = result.get("decision", {}).get("decision")
         expected = label["expected_decision"]
+        if actual == Decision.MANUAL_REVIEW.value:
+            manual_review_count += 1
         scenario = str(label.get("scenario", "unknown"))
         scenario_breakdown[scenario]["total"] += 1
         if actual == expected:
@@ -152,6 +155,7 @@ def evaluate_batch(batch_result: dict[str, Any], ground_truth_path: str | Path) 
             "拒绝/升级 Precision >= 90%": precision >= 0.9,
             "柔性放行准确率 >= 85%": flexible_accuracy >= 0.85,
             "关键字段抽取准确率 >= 95%": field_accuracy >= 0.95,
+            "人工复核比例可解释": manual_review_count <= max(1, int(total * 0.45)),
         },
     )
 

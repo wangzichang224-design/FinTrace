@@ -26,6 +26,11 @@ class TraceStatus(str, Enum):
     ERROR = "ERROR"
 
 
+class RuleClass(str, Enum):
+    BLOCKING_CONTROL = "blocking_control"
+    CONTEXTUAL_RISK_SIGNAL = "contextual_risk_signal"
+
+
 @dataclass
 class TraceEvent:
     node_name: str
@@ -74,6 +79,7 @@ class FieldSource:
 class PolicyHit:
     rule_id: str
     rule_version: str
+    rule_class: str
     severity: str
     decision_hint: str
     input_fields: dict[str, Any]

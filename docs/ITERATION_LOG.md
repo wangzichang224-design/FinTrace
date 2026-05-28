@@ -63,3 +63,35 @@
 - v1 图片/PDF OCR 仍是可选增强；没有本地 OCR 时，建议使用扫描全能王或企业微信导出的文本附件。
 - DeepSeek 真实调用依赖网络和 Key；无 Key 或网络失败时，本地确定性模型会保证批处理可继续运行。
 - 高仿真数据是 mock 企业数据，不包含真实公司隐私，可用于录屏、图文展示和面试讲解。
+
+## Round 4：根据评审做 MVP 瘦身与风控边界重画
+
+- 评审问题：
+  - 项目能力堆叠较多，MVP 范围不清。
+  - “硬规则”和“柔性推理”边界不够清楚。
+  - 企业本体缺少冷启动、维护责任和数据来源说明。
+  - LLM 缺少合规门控，可能在财务场景里产生幻觉风险。
+  - 批量处理中缺少部分失败策略。
+  - 文档有工程细节，但缺少“为什么这样做”的架构决策记录。
+
+- 修改内容：
+  - 新增 `docs/MVP_SCOPE.md`，把 v0.1 MVP 定义为 CSV/XLSX 批量导入、字段溯源、本地稳定模型、可解释结果导出。
+  - 新增 `docs/ONTOLOGY_COLD_START.md`，说明费用标准、节假日、客户等级、员工信用和供应商风险的数据来源、维护责任、更新频率和冷启动默认策略。
+  - 新增 `docs/ARCHITECTURE_DECISIONS.md`，解释为什么使用双层 LangGraph、为什么本地稳定模型是基准、为什么 DeepSeek 是增强层、为什么 Streamlit/红蓝评测后置。
+  - 将规则改为 `blocking_control` 和 `contextual_risk_signal` 两类；拆票、跨期、相似票号、OCR 金额冲突不再作为直接硬拒绝，只进入人工复核/推理链。
+  - 给 `context_info` 增加 `context_quality`；缺员工信用、供应商风险或费用基准时，不允许自动柔性通过。
+  - 给 DeepSeek 增加二次门控：低置信度、缺证据、与本地基准冲突、试图覆盖阻断控制时回退或转人工复核。
+  - 批量处理改为部分成功策略：单个 CaseGraph 异常时生成失败 case result，默认 `MANUAL_REVIEW`，批次不整体回滚。
+  - 前端增加 MVP 定位提示、规则分类、本体冷启动质量、LLM 门控状态和失败案件数。
+
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -B -c "import cli, streamlit_app; import fintrace.schemas, fintrace.policies, fintrace.ontology, fintrace.reasoning, fintrace.pipeline; print('import ok')"`
+  - `python cli.py eval --output-root runtime\eval_review_fix --n 500 --seed 42`
+  - `Invoke-WebRequest -UseBasicParsing http://localhost:8508`
+
+- 复跑结果：
+  - 单元测试：7/7 通过。
+  - 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
+  - 新增目标 `人工复核比例可解释`：达成。
+  - 前端：`http://localhost:8508` 返回 200。

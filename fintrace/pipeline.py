@@ -11,7 +11,7 @@ from langgraph.graph import END, START, StateGraph
 from .case_graph import build_case_graph
 from .config import get_settings
 from .ingestion import assemble_cases, prepare_sources, scan_manifest
-from .schemas import BatchState
+from .schemas import BatchState, Decision, RiskLevel, TraceStatus
 from .storage import append_jsonl, ensure_dir, utcish_stamp, write_json
 from .tracing import build_error_registry, trace_node
 
@@ -101,18 +101,74 @@ def case_dispatch_node(state: BatchState) -> dict[str, Any]:
 
 
 def run_case(case: dict[str, Any], batch_state: dict[str, Any]) -> dict[str, Any]:
-    graph = build_case_graph()
-    initial = {
-        "batch_id": batch_state["batch_id"],
-        "case_id": case["case_id"],
-        "raw_artifacts": case["raw_artifacts"],
+    try:
+        graph = build_case_graph()
+        initial = {
+            "batch_id": batch_state["batch_id"],
+            "case_id": case["case_id"],
+            "raw_artifacts": case["raw_artifacts"],
+            "batch_features": case.get("batch_features", {}),
+            "llm_mode": batch_state.get("llm_mode", "mock"),
+            "debug_events": [],
+            "errors": [],
+        }
+        result = graph.invoke(initial)
+        result.setdefault("case_id", case["case_id"])
+        result.setdefault("raw_artifacts", case.get("raw_artifacts", []))
+        result["case_failed"] = False
+        return result
+    except Exception as exc:
+        return failed_case_result(case, batch_state, exc)
+
+
+def failed_case_result(case: dict[str, Any], batch_state: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    message = str(exc)[:500]
+    return {
+        "batch_id": batch_state.get("batch_id", ""),
+        "case_id": case.get("case_id", "UNKNOWN_CASE"),
+        "raw_artifacts": case.get("raw_artifacts", []),
         "batch_features": case.get("batch_features", {}),
-        "llm_mode": batch_state.get("llm_mode", "mock"),
-        "debug_events": [],
-        "errors": [],
+        "parsed_fields": {},
+        "field_provenance": {},
+        "policy_hits": [],
+        "context_info": {},
+        "reasoning_trace": {
+            "model": "case_failure_fallback",
+            "llm_guardrail_status": {"status": "case_processing_failed", "action": "manual_review"},
+            "final_decision": {
+                "decision": Decision.MANUAL_REVIEW.value,
+                "risk_level": RiskLevel.HIGH.value,
+                "confidence": 0.0,
+                "reason": "单案处理失败，按部分失败策略转人工复核。",
+            },
+        },
+        "decision": {
+            "decision": Decision.MANUAL_REVIEW.value,
+            "risk_level": RiskLevel.HIGH.value,
+            "confidence": 0.0,
+            "reason": "单案处理失败，批次不回滚，该案件转人工复核。",
+            "recommended_action": "查看 error_registry 和原始材料后重跑该 case。",
+            "evidence_refs": ["case_processing_failed"],
+            "manual_review_reason": message,
+            "guardrail_status": "case_processing_failed",
+        },
+        "debug_events": [
+            {
+                "node_name": "case_dispatch",
+                "input_refs": [case.get("case_id", "")],
+                "output_refs": ["MANUAL_REVIEW"],
+                "status": TraceStatus.ERROR.value,
+                "latency_ms": 0.0,
+                "confidence": 0.0,
+                "errors": [{"category": "case_processing_failed", "type": exc.__class__.__name__, "message": message}],
+                "next_route": "manual_review",
+                "details": {"partial_failure_policy": "部分成功、失败案件留痕、不整体回滚"},
+            }
+        ],
+        "route": "manual_review",
+        "errors": [{"category": "case_processing_failed", "message": message, "case_id": case.get("case_id", "")}],
+        "case_failed": True,
     }
-    result = graph.invoke(initial)
-    return result
 
 
 def batch_aggregate_node(state: BatchState) -> dict[str, Any]:
@@ -129,6 +185,9 @@ def batch_aggregate_node(state: BatchState) -> dict[str, Any]:
                 latencies.append(float(ev.get("latency_ms") or 0))
         metrics = {
             "case_count": len(results),
+            "case_success_count": sum(1 for r in results if not r.get("case_failed")),
+            "case_failed_count": sum(1 for r in results if r.get("case_failed")),
+            "partial_failure_policy": "部分成功、失败案件留痕、不整体回滚；失败 case 默认 MANUAL_REVIEW。",
             "decision_counts": dict(decisions),
             "risk_counts": dict(risks),
             "avg_node_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else 0,
@@ -180,4 +239,3 @@ def compact_batch_result(state: dict[str, Any]) -> dict[str, Any]:
         "error_registry": state.get("error_registry", {}),
         "debug_events": state.get("debug_events", []),
     }
-

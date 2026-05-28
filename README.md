@@ -1,15 +1,36 @@
 # FinTrace
 
-FinTrace 是一个中文企业级批量费控审查 Agent。它不是“上传一张发票问 AI”的玩具，而是模拟企业 ERP 批量审单：一次输入 ERP 导出、OCR 文本、审批聊天记录、PDF/图片附件或 ZIP 包，系统自动归并案件、执行双层状态机、输出可追踪的审计链路和红蓝评测指标。
+FinTrace 是一个中文企业级批量费控审查 Agent。评审整改后，它的产品边界更清楚：
 
-## 核心卖点
+- **v0.1 MVP 主链路**：`CSV/XLSX 批量导入 -> 字段溯源 -> 本地稳定模型/规则审查 -> 可解释结果导出`
+- **v0.2 展示与增强能力**：Streamlit 控制台、DeepSeek 结构化审计底稿、红蓝评测、高仿真演示数据
 
-- 批量处理：一次运行 50-500 笔报销，生成 `batch_id` 和逐案 `case_id`。
-- 异构输入：支持 ERP `CSV/XLSX`、扫描全能王/OCR 文本、审批聊天 `TXT/MD`、PDF/图片附件。
-- 可溯源调试：字段来源、规则命中、本体工具调用、推理摘要、条件路由和错误归因全部落盘。
-- 柔性费控：硬规则先拦截，节假日指数、客户等级、员工信用、供应商风险再进入柔性判断。
-- 红蓝评测：红队生成高仿真批量样本，裁判器输出 Precision、Recall、F1、字段准确率和 case 级错误 drill-down。
-- DeepSeek 可选：无 Key 时使用本地确定性模型；有 Key 时调用 DeepSeek 输出结构化 JSON 审计底稿，失败自动回退。
+FinTrace 不试图一开始替代 ERP 或财务终审。它先解决批量报销初筛中最痛的两件事：风险先筛出来，错误能追回去。
+
+## 文档入口
+
+- [MVP 范围说明](docs/MVP_SCOPE.md)：回答第一个可用版本到底包含什么。
+- [流程图](docs/FINTRACE_FLOW.md)：端到端流程、双层状态机、溯源链路和本地稳定模型。
+- [企业本体冷启动方案](docs/ONTOLOGY_COLD_START.md)：说明 CRM/HR/供应商/节假日数据从哪里来、谁维护、缺数据怎么办。
+- [架构决策记录](docs/ARCHITECTURE_DECISIONS.md)：解释为什么使用 LangGraph、DeepSeek、本地稳定模型和 Streamlit。
+- [迭代记录](docs/ITERATION_LOG.md)：记录测试、失败归因和复测过程。
+
+## v0.1 MVP 必须有
+
+- 批量导入 ERP `CSV/XLSX`，支持本地目录路径。
+- 案件归并：一行 ERP 对应一个 case，并关联同名/同报销单附件文本。
+- 字段级溯源：金额、员工、费用类型、发票号、供应商等关键字段保留来源。
+- 本地稳定模型：不依赖外部 LLM，同样输入得到同样输出。
+- 阻断控制与上下文风险信号分层：
+  - `blocking_control`：缺原件、精确重复发票/哈希、供应商黑名单，可直达拒绝或反舞弊升级。
+  - `contextual_risk_signal`：拆票、跨期、相似发票号、超金额、OCR 金额冲突，只进入推理或人工复核。
+- JSON/JSONL 结果导出：每个 batch 和 case 都能离线复查。
+
+## v0.2 展示与增强能力
+
+- Streamlit 中文控制台：适合录屏展示案件列表、审计探针、字段溯源、规则调试和批量指标。
+- DeepSeek：只作为结构化审计底稿增强层，必须通过本地基准和合规门控。
+- 红蓝评测：生成高仿真 ERP 批次和异构附件，输出 Precision、Recall、F1、字段准确率和错误归因。
 
 ## 快速开始
 
@@ -17,10 +38,10 @@ FinTrace 是一个中文企业级批量费控审查 Agent。它不是“上传�
 cd D:\03_AI_Projects\FinTrace
 python cli.py demo-data --output-dir runtime\demo_batch --n 80 --seed 42
 python cli.py run runtime\demo_batch --batch-id demo-run
-streamlit run streamlit_app.py --server.port 8507
+streamlit run streamlit_app.py --server.port 8508
 ```
 
-打开 Streamlit 后，推荐先点“生成高仿真样本并运行”，可直接得到适合录屏的批量审单结果。
+`python cli.py run ...` 是 MVP 主链路。`demo-data` 和 `eval` 是演示与评测能力。
 
 ## DeepSeek 模式
 
@@ -33,56 +54,21 @@ $env:DEEPSEEK_MODEL="deepseek-chat"
 python cli.py run runtime\demo_batch --llm-mode deepseek
 ```
 
-如果 DeepSeek 调用失败、超时或返回非 JSON，FinTrace 会记录 `LLM调用失败` 或 `LLM JSON解析失败`，并回退到本地确定性柔性费控模型。
-
-## 架构
-
-FinTrace 使用双层 LangGraph 状态机：
-
-- `BatchGraph`：批量扫描、manifest 生成、案件归并、并发调度、批次聚合、trace 导出。
-- `CaseGraph`：字段抽取、硬规则、企业本体、结构化推理、最终决策。
-
-完整流程图见：[docs/FINTRACE_FLOW.md](docs/FINTRACE_FLOW.md)。
-
-每个节点都会写出结构化 `TraceEvent`：
-
-```json
-{
-  "node_name": "hard_policy",
-  "input_refs": ["amount", "invoice_no"],
-  "output_refs": ["R004_ABSOLUTE_LIMIT"],
-  "status": "WARN",
-  "latency_ms": 1.2,
-  "confidence": 0.95,
-  "errors": [],
-  "next_route": "need_context"
-}
-```
-
-## 前端页面
-
-- 批量处理台：路径输入、多文件/ZIP 上传、manifest、错误定位台。
-- 案件列表：按决策、风险、员工、错误类型筛选。
-- 审计探针：展示原始材料到最终结论的完整逻辑链。
-- 字段溯源：字段值、来源 artifact、定位 span、抽取方式和置信度。
-- 规则调试台：命中规则、未命中规则、阈值计算、本体工具调用。
-- 批量指标：通过率、拒绝率、人工复核率、反舞弊率、平均耗时、节点失败率。
-- 红蓝评测台：运行 50-500 条合成批量样本并查看指标。
-- 迭代记录：展示测试-复盘-再迭代过程和本地评测报告。
+DeepSeek 输出必须经过 JSON 解析、证据引用、置信度、本地基准一致性和阻断控制校验。任何一步不通过，系统会回退到本地稳定模型或转人工复核。
 
 ## 运行评测
 
 ```powershell
 python -m unittest discover -s tests -v
-python cli.py eval --output-root runtime\eval_cn_mock --n 500 --seed 42
+python cli.py eval --output-root runtime\eval_review_fix --n 500 --seed 42
 ```
 
 目标指标：
 
 - 硬违规 Recall >= 99%
 - 拒绝/升级 Precision >= 90%
-- 柔性放行准确率 >= 85%
 - 关键字段抽取准确率 >= 95%
+- 人工复核比例可解释，不能靠误杀堆高风控
 
 ## 运行产物
 
@@ -96,4 +82,4 @@ python cli.py eval --output-root runtime\eval_cn_mock --n 500 --seed 42
 - `traces.jsonl`
 - `cases/<case_id>/case_result.json`
 
-这些文件用于定位错误：如果结果不准，可以快速判断问题来自 OCR/文本抽取、字段解析、规则阈值、本体上下文、LLM JSON、条件路由还是人工复核争议。
+如果结论不准，可以沿着字段、规则、本体、推理、路由和错误定位台快速判断问题来自哪里。

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from .schemas import Decision, PolicyHit, RiskLevel
+from .schemas import Decision, PolicyHit, RiskLevel, RuleClass
 
 
 ABSOLUTE_LIMITS = {
@@ -23,6 +23,12 @@ BLACKLISTED_VENDOR_TOKENS = {"黑名单", "phantom", "空壳", "高危供应商"
 
 
 def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+    """Return blocking controls and contextual risk signals.
+
+    The function name is kept for compatibility with CaseGraph, but the output is
+    intentionally split by rule_class. Only blocking_control rules can directly
+    reject or escalate; contextual_risk_signal rules continue to reasoning.
+    """
     hits: list[PolicyHit] = []
 
     if fields.get("has_original_invoice") is False:
@@ -30,12 +36,13 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             PolicyHit(
                 rule_id="R001_MISSING_ORIGINAL",
                 rule_version="2026.05",
+                rule_class=RuleClass.BLOCKING_CONTROL.value,
                 severity=RiskLevel.CRITICAL.value,
                 decision_hint=Decision.REJECT.value,
                 input_fields={"has_original_invoice": fields.get("has_original_invoice")},
                 threshold=True,
                 calculation="has_original_invoice == False",
-                reason="缺少发票原件，触发财务硬性拦截规则。",
+                reason="缺少发票原件，属于无歧义、可离线判定的阻断控制。",
             )
         )
 
@@ -45,12 +52,13 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             PolicyHit(
                 rule_id="R002_DUPLICATE_INVOICE",
                 rule_version="2026.05",
+                rule_class=RuleClass.BLOCKING_CONTROL.value,
                 severity=RiskLevel.CRITICAL.value,
                 decision_hint=Decision.ESCALATE_FRAUD.value,
                 input_fields={"invoice_no": fields.get("invoice_no"), "duplicate_count": duplicate_count},
                 threshold=1,
                 calculation=f"invoice_duplicate_count={duplicate_count} > 1",
-                reason="同一发票号或附件哈希在批次内重复出现，疑似重复报销。",
+                reason="同一发票号或附件哈希在批次内精确重复，疑似重复报销。",
             )
         )
 
@@ -63,12 +71,13 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             PolicyHit(
                 rule_id="R003_SPLIT_INVOICE",
                 rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
                 severity=RiskLevel.HIGH.value,
                 decision_hint=Decision.MANUAL_REVIEW.value,
                 input_fields={"split_group_count": split_count, "split_group_total": split_total},
                 threshold=round(limit * 1.2, 2),
                 calculation=f"split_total={split_total} > category_limit*1.2={round(limit * 1.2, 2)}",
-                reason="同员工、同供应商、同日期多笔报销累计超阈值，疑似拆分发票规避审批。",
+                reason="拆票需要业务背景判断，因此作为上下文风险信号进入人工复核/推理链。",
             )
         )
 
@@ -78,12 +87,13 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             PolicyHit(
                 rule_id="R004_ABSOLUTE_LIMIT",
                 rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
                 severity=RiskLevel.HIGH.value,
                 decision_hint=Decision.MANUAL_REVIEW.value,
                 input_fields={"amount": amount, "expense_type": fields.get("expense_type")},
                 threshold=limit,
                 calculation=f"amount={amount} > absolute_limit={limit}",
-                reason="金额超过静态费用标准，需结合节假日、客户等级和员工信用做柔性判断。",
+                reason="金额超标不是硬拒绝，需要结合节假日、客户等级和员工信用做柔性判断。",
             )
         )
 
@@ -93,12 +103,13 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             PolicyHit(
                 rule_id="R005_VENDOR_BLACKLIST",
                 rule_version="2026.05",
+                rule_class=RuleClass.BLOCKING_CONTROL.value,
                 severity=RiskLevel.CRITICAL.value,
                 decision_hint=Decision.ESCALATE_FRAUD.value,
                 input_fields={"vendor": fields.get("vendor")},
                 threshold="not in blacklist",
                 calculation="vendor token matched blacklist",
-                reason="供应商命中黑名单或高危关键词，需升级反舞弊复核。",
+                reason="供应商命中黑名单或高危关键词，属于阻断控制。",
             )
         )
 
@@ -107,12 +118,13 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             PolicyHit(
                 rule_id="R006_CROSS_PERIOD",
                 rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
                 severity=RiskLevel.MEDIUM.value,
                 decision_hint=Decision.MANUAL_REVIEW.value,
                 input_fields={"expense_date": fields.get("expense_date")},
                 threshold="90 days",
                 calculation="expense_date is older than reimbursement window",
-                reason="费用发生日期超过 90 天报销窗口，需人工确认跨期原因。",
+                reason="跨期长短和业务原因不同，作为上下文风险信号而不是硬拒绝。",
             )
         )
 
@@ -122,6 +134,7 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             PolicyHit(
                 rule_id="R007_SIMILAR_INVOICE_NO",
                 rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
                 severity=RiskLevel.MEDIUM.value,
                 decision_hint=Decision.MANUAL_REVIEW.value,
                 input_fields={
@@ -131,7 +144,25 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
                 },
                 threshold=1,
                 calculation=f"similar_invoice_count={similar_invoice_count} >= 2",
-                reason="同员工/同供应商/同日出现高度相似发票号，需排查连号、改号或录入污染。",
+                reason="相似发票号可能是连号、改号或录入污染，需要上下文复核。",
+            )
+        )
+
+    if fields.get("amount_conflict_detected"):
+        hits.append(
+            PolicyHit(
+                rule_id="R008_OCR_AMOUNT_CONFLICT",
+                rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
+                severity=RiskLevel.HIGH.value,
+                decision_hint=Decision.MANUAL_REVIEW.value,
+                input_fields={
+                    "amount": fields.get("amount"),
+                    "attachment_amount": fields.get("attachment_amount"),
+                },
+                threshold="20% difference",
+                calculation="abs(attachment_amount - erp_amount) / erp_amount > 20%",
+                reason="附件 OCR 金额与 ERP 金额差异较大，需要回到字段溯源视图人工修正。",
             )
         )
 
@@ -147,10 +178,14 @@ def expense_limit(expense_type: str) -> float:
 
 
 def route_from_policy_hits(hits: list[PolicyHit]) -> str:
-    hints = {h.decision_hint for h in hits if h.matched}
-    if Decision.ESCALATE_FRAUD.value in hints:
+    blocking_hints = {
+        h.decision_hint
+        for h in hits
+        if h.matched and h.rule_class == RuleClass.BLOCKING_CONTROL.value
+    }
+    if Decision.ESCALATE_FRAUD.value in blocking_hints:
         return "fraud_escalation"
-    if Decision.REJECT.value in hints:
+    if Decision.REJECT.value in blocking_hints:
         return "reject"
     return "need_context"
 

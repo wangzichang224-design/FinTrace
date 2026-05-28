@@ -4,7 +4,7 @@ import json
 import os
 from typing import Any
 
-from .schemas import Decision, RiskLevel
+from .schemas import Decision, RiskLevel, RuleClass
 
 
 def make_decision(
@@ -13,35 +13,44 @@ def make_decision(
     context: dict[str, Any],
     llm_mode: str = "mock",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    severe_hint = first_severe_hint(policy_hits)
+    severe_hint = first_blocking_hint(policy_hits)
     if severe_hint in {Decision.ESCALATE_FRAUD.value, Decision.REJECT.value}:
         decision = severe_decision(fields, policy_hits, severe_hint)
-        trace = reasoning_summary(fields, policy_hits, context, decision, "硬规则直达路由")
+        trace = reasoning_summary(fields, policy_hits, context, decision, "阻断控制直达路由")
         return decision, trace
 
-    llm_meta: dict[str, Any] = {"enabled": llm_mode == "deepseek", "provider": "deepseek"}
+    baseline = deterministic_decision(fields, policy_hits, context)
+    llm_meta: dict[str, Any] = {"enabled": llm_mode == "deepseek", "provider": "deepseek", "status": "not_used"}
+    guardrail: dict[str, Any] = {"status": "local_baseline", "action": "use_local_baseline"}
+
     if llm_mode == "deepseek":
         if os.getenv("DEEPSEEK_API_KEY"):
             llm_decision, llm_meta = try_deepseek_decision(fields, policy_hits, context)
             if llm_decision:
-                trace = reasoning_summary(fields, policy_hits, context, llm_decision, "DeepSeek 结构化审计判断", llm_meta)
-                return llm_decision, trace
+                decision, guardrail = apply_llm_guardrails(llm_decision, baseline, policy_hits, context)
+                trace = reasoning_summary(fields, policy_hits, context, decision, "DeepSeek 结构化审计判断", llm_meta, baseline, guardrail)
+                return decision, trace
         else:
             llm_meta = {
                 "enabled": True,
                 "provider": "deepseek",
                 "status": "skipped",
                 "error_category": "LLM调用失败",
-                "error_message": "未检测到 DEEPSEEK_API_KEY，已回退到本地确定性模型。",
+                "error_message": "未检测到 DEEPSEEK_API_KEY，已回退到本地稳定模型。",
             }
+            guardrail = {"status": "llm_unavailable", "action": "use_local_baseline"}
 
-    decision = deterministic_decision(fields, policy_hits, context)
-    trace = reasoning_summary(fields, policy_hits, context, decision, "本地确定性柔性费控模型", llm_meta)
-    return decision, trace
+    baseline.setdefault("guardrail_status", guardrail["status"])
+    trace = reasoning_summary(fields, policy_hits, context, baseline, "本地稳定模型", llm_meta, baseline, guardrail)
+    return baseline, trace
 
 
-def first_severe_hint(policy_hits: list[dict[str, Any]]) -> str:
-    hints = [h.get("decision_hint") for h in policy_hits if h.get("matched", True)]
+def first_blocking_hint(policy_hits: list[dict[str, Any]]) -> str:
+    hints = [
+        h.get("decision_hint")
+        for h in policy_hits
+        if h.get("matched", True) and h.get("rule_class") == RuleClass.BLOCKING_CONTROL.value
+    ]
     if Decision.ESCALATE_FRAUD.value in hints:
         return Decision.ESCALATE_FRAUD.value
     if Decision.REJECT.value in hints:
@@ -50,15 +59,17 @@ def first_severe_hint(policy_hits: list[dict[str, Any]]) -> str:
 
 
 def severe_decision(fields: dict[str, Any], policy_hits: list[dict[str, Any]], hint: str) -> dict[str, Any]:
+    blocking_refs = [h["rule_id"] for h in policy_hits if h.get("rule_class") == RuleClass.BLOCKING_CONTROL.value]
     return {
         "decision": hint,
         "risk_level": RiskLevel.CRITICAL.value,
         "confidence": 0.97,
-        "reason": "硬性规则已产生拦截或反舞弊升级信号。",
+        "reason": "命中阻断控制，系统不允许 LLM 或柔性因子覆盖风控底线。",
         "recommended_action": "停止自动放行，流转至财务风控负责人复核。",
-        "evidence_refs": [h["rule_id"] for h in policy_hits],
-        "reasoning_summary": "命中硬规则后不再调用 LLM，避免模型覆盖风控底线。",
+        "evidence_refs": blocking_refs,
+        "reasoning_summary": "缺原件、精确重复发票或供应商黑名单属于无歧义控制点。",
         "manual_review_reason": "",
+        "guardrail_status": "blocking_control_enforced",
     }
 
 
@@ -69,10 +80,18 @@ def deterministic_decision(fields: dict[str, Any], policy_hits: list[dict[str, A
     client_mul = float(context.get("client_priority", {}).get("multiplier") or 1.0)
     employee_score = int(context.get("employee_credit", {}).get("score") or 60)
     vendor_risk = context.get("vendor_risk", {}).get("risk", "low")
+    context_quality = context.get("context_quality", {})
+    allow_flexible = bool(context_quality.get("allow_flexible_approval", True))
     flex_threshold = round(base * max(holiday_mul, client_mul), 2)
 
-    manual_rules = [h for h in policy_hits if h.get("decision_hint") == Decision.MANUAL_REVIEW.value]
-    non_flexible_manual_rules = [h for h in manual_rules if h.get("rule_id") != "R004_ABSOLUTE_LIMIT"]
+    contextual_rules = [
+        h
+        for h in policy_hits
+        if h.get("decision_hint") == Decision.MANUAL_REVIEW.value
+        and h.get("rule_class") == RuleClass.CONTEXTUAL_RISK_SIGNAL.value
+    ]
+    non_amount_contextual_rules = [h for h in contextual_rules if h.get("rule_id") != "R004_ABSOLUTE_LIMIT"]
+
     if vendor_risk == "high":
         return {
             "decision": Decision.ESCALATE_FRAUD.value,
@@ -84,30 +103,46 @@ def deterministic_decision(fields: dict[str, Any], policy_hits: list[dict[str, A
             "computed_threshold": flex_threshold,
             "reasoning_summary": "供应商风险优先级高于金额柔性阈值。",
             "manual_review_reason": "",
+            "guardrail_status": "local_vendor_guardrail",
         }
-    if non_flexible_manual_rules:
+    if non_amount_contextual_rules:
         return {
             "decision": Decision.MANUAL_REVIEW.value,
             "risk_level": RiskLevel.HIGH.value,
             "confidence": 0.81,
-            "reason": "命中不可被柔性因子覆盖的人工复核规则。",
-            "recommended_action": "在规则调试台查看命中规则和输入字段。",
-            "evidence_refs": [h.get("rule_id") for h in non_flexible_manual_rules],
+            "reason": "命中需要业务上下文解释的风险信号。",
+            "recommended_action": "在规则调试台查看风险信号、输入字段和原始材料。",
+            "evidence_refs": [h.get("rule_id") for h in non_amount_contextual_rules],
             "computed_threshold": flex_threshold,
-            "reasoning_summary": "跨期、拆票等流程风险不由节假日或客户等级直接豁免。",
-            "manual_review_reason": "存在非金额类风险规则，需要财务人员判断业务合理性。",
+            "reasoning_summary": "拆票、跨期、相似发票号或 OCR 金额冲突不直接硬拒绝，但必须人工复核。",
+            "manual_review_reason": "存在非金额类风险信号，需要财务人员判断业务合理性或修正字段。",
+            "guardrail_status": "contextual_risk_manual_review",
         }
-    if amount <= base and not manual_rules:
+    if amount <= base and not contextual_rules:
         return {
             "decision": Decision.APPROVE.value,
             "risk_level": RiskLevel.LOW.value,
             "confidence": 0.9,
-            "reason": "金额在静态标准内，未发现硬规则风险。",
+            "reason": "金额在静态标准内，未发现阻断控制或上下文风险信号。",
             "recommended_action": "自动通过并保留审计轨迹。",
             "evidence_refs": ["category_benchmark"],
             "computed_threshold": flex_threshold,
-            "reasoning_summary": "ERP 字段、附件字段和批量特征未触发异常。",
+            "reasoning_summary": "MVP 主链路足以处理该标准报销。",
             "manual_review_reason": "",
+            "guardrail_status": "local_baseline_clear",
+        }
+    if not allow_flexible and amount > base:
+        return {
+            "decision": Decision.MANUAL_REVIEW.value,
+            "risk_level": RiskLevel.MEDIUM.value,
+            "confidence": 0.7,
+            "reason": "企业本体处于冷启动或缺少关键上下文，不允许自动柔性通过。",
+            "recommended_action": "补充员工信用、供应商风险或费用基准后再判断；当前转人工复核。",
+            "evidence_refs": ["context_quality", "category_benchmark"],
+            "computed_threshold": flex_threshold,
+            "reasoning_summary": "冷启动默认保守：可以在静态标准内通过，但不能自动批准超标案件。",
+            "manual_review_reason": "缺少支持柔性放行的关键上下文。",
+            "guardrail_status": "context_cold_start_manual_review",
         }
     if amount <= flex_threshold and employee_score >= 70 and vendor_risk in {"low", "medium"}:
         return {
@@ -120,6 +155,7 @@ def deterministic_decision(fields: dict[str, Any], policy_hits: list[dict[str, A
             "computed_threshold": flex_threshold,
             "reasoning_summary": "柔性阈值覆盖当前金额，且员工历史信用满足自动放行条件。",
             "manual_review_reason": "",
+            "guardrail_status": "local_flex_approved",
         }
     if employee_score < 60 or amount <= flex_threshold * 1.2:
         return {
@@ -132,6 +168,7 @@ def deterministic_decision(fields: dict[str, Any], policy_hits: list[dict[str, A
             "computed_threshold": flex_threshold,
             "reasoning_summary": "系统不做强行拒绝，给人工复核保留解释空间。",
             "manual_review_reason": "边界金额或低信用员工需要人工确认。",
+            "guardrail_status": "local_boundary_manual_review",
         }
     return {
         "decision": Decision.REJECT.value,
@@ -143,7 +180,83 @@ def deterministic_decision(fields: dict[str, Any], policy_hits: list[dict[str, A
         "computed_threshold": flex_threshold,
         "reasoning_summary": "可解释本体因子不足，超过企业可接受风险边界。",
         "manual_review_reason": "",
+        "guardrail_status": "local_threshold_reject",
     }
+
+
+def apply_llm_guardrails(
+    llm_decision: dict[str, Any],
+    baseline: dict[str, Any],
+    policy_hits: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if first_blocking_hint(policy_hits):
+        guarded = dict(baseline)
+        guarded["guardrail_status"] = "llm_blocked_by_blocking_control"
+        return guarded, {"status": "blocked", "reason": "LLM 不允许覆盖阻断控制", "action": "use_local_baseline"}
+
+    confidence = float(llm_decision.get("confidence") or 0)
+    if confidence < 0.7:
+        return manual_review_from_guardrail(
+            baseline,
+            "llm_low_confidence_manual_review",
+            "DeepSeek 置信度低于 0.70，转人工复核。",
+            ["llm_confidence"],
+        )
+
+    if not llm_decision.get("evidence_refs"):
+        guarded = dict(baseline)
+        guarded["guardrail_status"] = "llm_missing_evidence_fallback"
+        return guarded, {"status": "fallback", "reason": "LLM 未提供证据引用", "action": "use_local_baseline"}
+
+    context_quality = context.get("context_quality", {})
+    if llm_decision.get("decision") == Decision.APPROVE_WITH_FLEX.value and not context_quality.get("allow_flexible_approval", True):
+        return manual_review_from_guardrail(
+            baseline,
+            "llm_blocked_by_context_quality",
+            "企业本体处于冷启动或缺少关键上下文，LLM 柔性通过被门控。",
+            ["context_quality"],
+        )
+
+    if llm_decision.get("decision") != baseline.get("decision"):
+        return manual_review_from_guardrail(
+            baseline,
+            "llm_conflict_with_local_baseline",
+            "DeepSeek 与本地稳定模型结论不一致，转人工复核。",
+            ["local_baseline", "deepseek_decision"],
+        )
+
+    accepted = dict(llm_decision)
+    accepted.setdefault("manual_review_reason", "")
+    accepted["guardrail_status"] = "llm_accepted"
+    return accepted, {"status": "accepted", "reason": "LLM 通过证据、置信度和本地基准一致性校验", "action": "use_llm_decision"}
+
+
+def manual_review_from_guardrail(
+    baseline: dict[str, Any],
+    status: str,
+    reason: str,
+    evidence_refs: list[str],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    guarded = dict(baseline)
+    guarded.update(
+        {
+            "decision": Decision.MANUAL_REVIEW.value,
+            "risk_level": max_risk(str(baseline.get("risk_level", RiskLevel.MEDIUM.value)), RiskLevel.MEDIUM.value),
+            "confidence": min(float(baseline.get("confidence") or 0.75), 0.74),
+            "reason": reason,
+            "recommended_action": "保留 LLM 输出和本地基准，交由财务人员复核。",
+            "evidence_refs": sorted(set((baseline.get("evidence_refs") or []) + evidence_refs)),
+            "manual_review_reason": reason,
+            "guardrail_status": status,
+        }
+    )
+    return guarded, {"status": "manual_review", "reason": reason, "action": "manual_review"}
+
+
+def max_risk(left: str, right: str) -> str:
+    order = [RiskLevel.LOW.value, RiskLevel.MEDIUM.value, RiskLevel.HIGH.value, RiskLevel.CRITICAL.value]
+    return order[max(order.index(left) if left in order else 1, order.index(right) if right in order else 1)]
 
 
 def reasoning_summary(
@@ -153,10 +266,15 @@ def reasoning_summary(
     decision: dict[str, Any],
     model: str,
     llm_meta: dict[str, Any] | None = None,
+    local_baseline: dict[str, Any] | None = None,
+    llm_guardrail: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "model": model,
         "llm_meta": llm_meta or {"enabled": False},
+        "llm_guardrail_status": llm_guardrail or {"status": decision.get("guardrail_status", "not_applicable")},
+        "local_baseline_decision": local_baseline,
+        "context_quality": context.get("context_quality", {}),
         "claim_snapshot": {
             "case": fields.get("reimbursement_id"),
             "employee": fields.get("employee_id"),
@@ -166,12 +284,14 @@ def reasoning_summary(
             "vendor": fields.get("vendor"),
         },
         "policy_refs": [h.get("rule_id") for h in policy_hits],
+        "blocking_refs": [h.get("rule_id") for h in policy_hits if h.get("rule_class") == RuleClass.BLOCKING_CONTROL.value],
+        "contextual_signal_refs": [h.get("rule_id") for h in policy_hits if h.get("rule_class") == RuleClass.CONTEXTUAL_RISK_SIGNAL.value],
         "ontology_refs": [call.get("tool") for call in context.get("tool_calls", [])],
         "judgment_steps": [
-            "将 ERP 行、附件文本和审批记录归一为结构化字段。",
-            "先执行硬规则，防止 LLM 覆盖财务底线。",
-            "调用企业本体工具计算节假日、客户等级、员工信用和供应商风险。",
-            "输出结构化审计底稿：结论、证据引用、置信度和复核原因。",
+            "先执行阻断控制，缺原件、精确重复票和供应商黑名单不允许被 LLM 覆盖。",
+            "上下文风险信号不直接硬拒绝，进入本地稳定模型或人工复核。",
+            "企业本体处于冷启动时，超标案件不允许自动柔性通过。",
+            "DeepSeek 只作为结构化审计底稿增强层，必须通过证据、置信度和本地基准一致性门控。",
         ],
         "final_decision": decision,
     }
@@ -206,7 +326,7 @@ def try_deepseek_decision(
             messages=[
                 {
                     "role": "system",
-                    "content": "你是企业财务内控审计 Agent。你只输出严格 JSON，不暴露长思维链，只给可复核的判断步骤摘要和证据引用。",
+                    "content": "你是企业财务内控审计 Agent。只输出严格 JSON，不暴露长思维链，只给可复核的判断摘要和证据引用。",
                 },
                 {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
             ],

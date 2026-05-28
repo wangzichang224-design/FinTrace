@@ -68,7 +68,12 @@ def hard_policy_node(state: CaseState) -> dict[str, Any]:
         event["status"] = TraceStatus.WARN.value if hits else TraceStatus.OK.value
         event["confidence"] = 0.95
         event["next_route"] = route
-        event["details"] = {"hit_count": len(hits), "matched_rules": [h["rule_id"] for h in hits]}
+        event["details"] = {
+            "hit_count": len(hits),
+            "blocking_controls": [h["rule_id"] for h in hits if h.get("rule_class") == "blocking_control"],
+            "contextual_risk_signals": [h["rule_id"] for h in hits if h.get("rule_class") == "contextual_risk_signal"],
+            "matched_rules": [h["rule_id"] for h in hits],
+        }
     return {
         "policy_hits": hits,
         "route": route,
@@ -90,7 +95,7 @@ def context_node(state: CaseState) -> dict[str, Any]:
         event["output_refs"] = [call["tool"] for call in context.get("tool_calls", [])]
         event["confidence"] = 0.88
         event["next_route"] = "reasoning"
-        event["details"] = {"tool_count": len(context.get("tool_calls", []))}
+        event["details"] = {"tool_count": len(context.get("tool_calls", [])), "context_quality": context.get("context_quality", {})}
     return {
         "context_info": context,
         "debug_events": working.get("debug_events", []),
@@ -123,6 +128,7 @@ def reasoning_node(state: CaseState) -> dict[str, Any]:
             "risk_level": decision.get("risk_level"),
             "reason": decision.get("reason"),
             "llm_status": llm_meta.get("status", "not_used"),
+            "guardrail_status": decision.get("guardrail_status"),
         }
     return {
         "decision": decision,
@@ -151,6 +157,7 @@ def decision_node(state: CaseState) -> dict[str, Any]:
             "decision": decision.get("decision"),
             "risk_level": decision.get("risk_level"),
             "recommended_action": decision.get("recommended_action"),
+            "guardrail_status": decision.get("guardrail_status"),
         }
     return {
         "decision": decision,
