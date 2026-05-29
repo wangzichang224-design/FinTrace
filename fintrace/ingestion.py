@@ -156,7 +156,7 @@ def assemble_cases(batch_id: str, manifest: list[dict[str, Any]]) -> list[CasePa
 def load_table_rows(path: Path) -> list[dict[str, Any]]:
     try:
         if path.suffix.lower() == ".csv":
-            df = pd.read_csv(path, encoding="utf-8-sig")
+            df = read_csv_best_effort(path)
         else:
             df = pd.read_excel(path)
     except Exception:
@@ -186,6 +186,19 @@ def load_table_rows(path: Path) -> list[dict[str, Any]]:
     if known_cols & {str(col) for col in df.columns}:
         return rows
     return []
+
+
+def read_csv_best_effort(path: Path) -> pd.DataFrame:
+    last_error: Exception | None = None
+    for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
+        try:
+            return pd.read_csv(path, encoding=encoding)
+        except UnicodeDecodeError as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise last_error
+    return pd.read_csv(path)
 
 
 def load_attachment(item: dict[str, Any]) -> RawArtifact:
@@ -246,20 +259,61 @@ def extract_image_text_optional(path: Path) -> str:
 
 
 def match_attachments(case_id: str, row: dict[str, Any], attachments: list[RawArtifact]) -> list[RawArtifact]:
-    keys = {
-        case_id.lower(),
-        str(row.get("reimbursement_id") or "").lower(),
-        str(row.get("invoice_no") or "").lower(),
-    }
-    keys = {k for k in keys if k and k != "none"}
+    keys = build_attachment_match_keys(case_id, row)
     matched: list[RawArtifact] = []
     for artifact in attachments:
-        haystack = f"{Path(artifact.path).name} {artifact.text[:1000]}".lower()
-        if any(k in haystack for k in keys):
+        haystack = f"{Path(artifact.path).name} {artifact.text[:3000]}"
+        score, matched_keys = attachment_match_score(haystack, keys)
+        if score >= 60:
             copied = RawArtifact(**artifact.to_dict())
             copied.case_id = case_id
+            copied.metadata["match_score"] = score
+            copied.metadata["matched_keys"] = matched_keys
             matched.append(copied)
     return matched
+
+
+def build_attachment_match_keys(case_id: str, row: dict[str, Any]) -> list[tuple[str, str, int]]:
+    raw_keys = [
+        ("case_id", case_id, 100),
+        ("reimbursement_id", row.get("reimbursement_id") or row.get("claim_id"), 100),
+        ("invoice_no", row.get("invoice_no"), 70),
+        ("invoice_hash", row.get("invoice_hash"), 90),
+    ]
+    keys: list[tuple[str, str, int]] = []
+    seen: set[str] = set()
+    for name, value, score in raw_keys:
+        token = str(value or "").strip()
+        if not token or token.lower() == "none":
+            continue
+        normalized = normalize_match_token(token)
+        if normalized and normalized not in seen:
+            keys.append((name, token, score))
+            seen.add(normalized)
+    return keys
+
+
+def attachment_match_score(haystack: str, keys: list[tuple[str, str, int]]) -> tuple[int, list[str]]:
+    score = 0
+    matched: list[str] = []
+    for key_name, raw_token, weight in keys:
+        if contains_exact_token(haystack, raw_token):
+            score += weight
+            matched.append(key_name)
+    return score, matched
+
+
+def contains_exact_token(haystack: str, token: str) -> bool:
+    normalized_haystack = normalize_match_token(haystack)
+    normalized_token = normalize_match_token(token)
+    if not normalized_token:
+        return False
+    pattern = rf"(?<![A-Za-z0-9]){re.escape(normalized_token)}(?![A-Za-z0-9])"
+    return re.search(pattern, normalized_haystack) is not None
+
+
+def normalize_match_token(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]+", " ", str(value).lower()).strip()
 
 
 def enrich_batch_features(cases: list[CasePackage]) -> None:

@@ -12,6 +12,7 @@ FinTrace 不试图一开始替代 ERP 或财务终审。它先解决批量报销
 - [MVP 范围说明](docs/MVP_SCOPE.md)：回答第一个可用版本到底包含什么。
 - [流程图](docs/FINTRACE_FLOW.md)：端到端流程、双层状态机、溯源链路和本地稳定模型。
 - [企业本体冷启动方案](docs/ONTOLOGY_COLD_START.md)：说明 CRM/HR/供应商/节假日数据从哪里来、谁维护、缺数据怎么办。
+- [企业数据对接契约](docs/ENTERPRISE_INTEGRATION.md)：定义真实 ERP、HR、CRM、供应商和费用政策数据源的最小字段、维护责任和冷启动兜底。
 - [架构决策记录](docs/ARCHITECTURE_DECISIONS.md)：解释为什么使用 LangGraph、DeepSeek、本地稳定模型和 Streamlit。
 - [迭代记录](docs/ITERATION_LOG.md)：记录测试、失败归因和复测过程。
 

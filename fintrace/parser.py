@@ -70,6 +70,20 @@ def parse_case_fields(
 
     combined_text = "\n".join(a.get("text", "") for a in raw_artifacts if a.get("text"))
     if combined_text:
+        if detect_prompt_injection(combined_text):
+            fields["prompt_injection_detected"] = True
+            artifact = next((a for a in raw_artifacts if a.get("text")), raw_artifacts[0])
+            provenance.setdefault("prompt_injection_detected", []).append(
+                FieldSource(
+                    field_name="prompt_injection_detected",
+                    value=True,
+                    artifact_id=artifact["artifact_id"],
+                    source_path=artifact["path"],
+                    locator=find_prompt_injection_locator(combined_text),
+                    confidence=0.82,
+                    extraction_method="chat_guardrail_regex",
+                ).to_dict()
+            )
         extracted = parse_text_fields(combined_text)
         if "amount" in extracted and "amount" in fields:
             text_amount = safe_float(extracted["amount"])
@@ -182,7 +196,48 @@ def parse_text_fields(text: str) -> dict[str, Any]:
         match = re.search(pattern, text, re.I)
         if match:
             out[key] = match.group(1).strip()
+    if "amount" not in out:
+        amount = extract_amount_near_label(text)
+        if amount:
+            out["amount"] = amount
     return out
+
+
+def extract_amount_near_label(text: str) -> str:
+    amount_pattern = r"(?:RMB|CNY|¥|￥)?\s*([0-9]{1,3}(?:[,，][0-9]{3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)"
+    labels = ["amount", "total", "金额", "价税合计", "报销金额", "合计金额", "实际发生额"]
+    for label in labels:
+        pattern = rf"{re.escape(label)}\s*[:：]?\s*(?:人民币|RMB|CNY|¥|￥)?\s*{amount_pattern}"
+        match = re.search(pattern, text, re.I)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def detect_prompt_injection(text: str) -> bool:
+    lowered = text.lower()
+    risky_phrases = [
+        "ignore all",
+        "ignore previous",
+        "bypass policy",
+        "override policy",
+        "approve immediately",
+        "忽略所有",
+        "忽略财务",
+        "绕过制度",
+        "跳过审核",
+        "立即批准",
+        "直接通过",
+    ]
+    return any(phrase in lowered for phrase in risky_phrases)
+
+
+def find_prompt_injection_locator(text: str) -> str:
+    for phrase in ("忽略所有", "绕过制度", "跳过审核", "立即批准", "ignore all", "bypass policy"):
+        pos = text.lower().find(phrase.lower())
+        if pos >= 0:
+            return f"text_span={pos}:{pos + len(phrase)}"
+    return "text_span=prompt_injection_phrase"
 
 
 def find_text_locator(text: str, value: str) -> str:
@@ -194,7 +249,10 @@ def find_text_locator(text: str, value: str) -> str:
 
 def safe_float(value: Any) -> float:
     try:
-        return round(float(str(value).replace(",", "").replace("￥", "").replace("¥", "").strip()), 2)
+        text = str(value).replace(",", "").replace("，", "")
+        text = re.sub(r"(?i)\b(rmb|cny)\b", "", text)
+        text = re.sub(r"[^0-9.\-]", "", text)
+        return round(float(text), 2)
     except (TypeError, ValueError):
         return 0.0
 

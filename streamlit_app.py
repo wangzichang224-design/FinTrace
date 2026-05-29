@@ -836,6 +836,7 @@ def missed_rules(hits: list[dict]) -> list[dict[str, str]]:
         "R006_CROSS_PERIOD": ("跨期报销", "contextual_risk_signal"),
         "R007_SIMILAR_INVOICE_NO": ("高度相似发票号", "contextual_risk_signal"),
         "R008_OCR_AMOUNT_CONFLICT": ("OCR 金额冲突", "contextual_risk_signal"),
+        "R009_CHAT_PROMPT_INJECTION": ("审批聊天越权诱导", "contextual_risk_signal"),
     }
     return [
         {"rule_id": rid, "规则": name, "规则分类": RULE_CLASS_LABELS.get(rule_class, rule_class), "状态": "未命中"}

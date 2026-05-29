@@ -166,6 +166,21 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             )
         )
 
+    if fields.get("prompt_injection_detected"):
+        hits.append(
+            PolicyHit(
+                rule_id="R009_CHAT_PROMPT_INJECTION",
+                rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
+                severity=RiskLevel.HIGH.value,
+                decision_hint=Decision.MANUAL_REVIEW.value,
+                input_fields={"prompt_injection_detected": True},
+                threshold="no prompt override language",
+                calculation="chat approval text contains prompt-injection or policy-bypass language",
+                reason="审批聊天中出现越权诱导或提示注入话术，需人工确认这不是有效审批意见。",
+            )
+        )
+
     route = route_from_policy_hits(hits)
     return [h.to_dict() for h in hits], route
 

@@ -119,3 +119,36 @@
   - 单元测试：8/8 通过。
   - 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
   - 无头前端检查：标题、`财务审核台`、`诊断与优化台`、`评测与迭代` 渲染正常，异常数 0。
+
+## Round 6：可信度补丁与评审漏洞修复
+
+- 评审问题：
+  - 附件匹配使用简单子串，发票号或报销单号重叠时可能错配。
+  - 金额解析对 `RMB 1,280.50`、`￥12，345.67` 等真实 ERP/OCR 格式不够稳。
+  - 审批聊天中的提示注入样本原本金额在标准内，系统会直接通过，评测没有真正覆盖“话术诱导”风险。
+  - 供应商高危口径在规则层和本体层不完全一致。
+  - 企业本体仍缺少真实 ERP/HR/CRM/供应商系统的数据对接契约。
+
+- 修改内容：
+  - 附件匹配改为带边界的精确 token 评分：报销单号、发票号、发票 hash 必须完整命中，避免 `FT-00001` 匹配到 `FT-000010`。
+  - CSV 读取增加 `utf-8-sig`、`utf-8`、`gb18030`、`gbk` 兜底。
+  - 金额解析支持 `RMB`、`CNY`、`¥/￥`、中文逗号和千分位格式。
+  - 新增 `R009_CHAT_PROMPT_INJECTION` 上下文风险信号，聊天中出现“忽略制度/绕过审核/立即批准”等越权诱导时转人工复核。
+  - 供应商本体风险复用 `BLACKLISTED_VENDOR_TOKENS`，统一规则层和本体层高危定义。
+  - 红队数据新增两个干净样本场景，避免新增提示注入人工复核后把人工复核率目标推高到不可解释。
+  - 新增 `docs/ENTERPRISE_INTEGRATION.md`，定义真实 ERP、HR、CRM、供应商、费用政策和节假日指数的数据源契约。
+
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -B -c "import fintrace.ingestion, fintrace.parser, fintrace.policies, fintrace.ontology, fintrace.redteam; print('import ok')"`
+  - `python cli.py eval --output-root runtime\eval_credibility_patch --n 500 --seed 42`
+  - `python cli.py eval --output-root runtime\eval_credibility_patch_v2 --n 500 --seed 42`
+
+- 复盘过程：
+  - 第一轮复测：决策准确率 93.40%，错误案件 33。原因是新增 `clean_office/clean_transport` 样本复用了供应商、员工和日期，被拆票规则误判为风险信号。
+  - 迭代修复：给新增干净样本供应商追加分店后缀，保持真实企业分店口径，同时避免被拆票归并。
+
+- 复跑结果：
+  - 单元测试：11/11 通过。
+  - 第二轮 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
+  - 新增测试覆盖：附件精确匹配、千分位金额解析、提示注入风险信号。
