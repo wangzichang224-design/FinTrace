@@ -4,8 +4,10 @@ import argparse
 from pathlib import Path
 
 from fintrace.evaluator import run_redteam_evaluation
+from fintrace.feedback import record_manual_approval
 from fintrace.pipeline import run_batch
 from fintrace.redteam import generate_redteam_batch
+from fintrace.storage import read_json
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--n", type=int, default=80)
     ev.add_argument("--seed", type=int, default=42)
     ev.add_argument("--llm-mode", choices=["mock", "deepseek"], default="mock")
+
+    feedback = sub.add_parser("feedback-approve", help="记录一笔人工复核通过案例，沉淀为受控例外记忆")
+    feedback.add_argument("batch_result", help="batch_result.json 或单案 case_result.json 路径")
+    feedback.add_argument("case_id", help="要学习的 case_id；如果传入单案文件可填该单案 case_id")
+    feedback.add_argument("--approver", default="finance_reviewer")
+    feedback.add_argument("--reason", default="人工复核确认业务合理。")
+    feedback.add_argument("--memory-path", default="")
     return parser
 
 
@@ -63,6 +72,20 @@ def main() -> None:
         print(f"字段准确率：{metrics['field_accuracy']:.2%}")
         print(f"错误案件数：{len(metrics['case_errors'])}")
         print(f"目标达成：{metrics.get('target_status')}")
+    elif args.cmd == "feedback-approve":
+        payload = read_json(Path(args.batch_result))
+        if "case_results" in payload:
+            case = next((row for row in payload.get("case_results", []) if row.get("case_id") == args.case_id), None)
+        else:
+            case = payload if payload.get("case_id") == args.case_id else None
+        if not case:
+            raise SystemExit(f"未找到 case_id：{args.case_id}")
+        result = record_manual_approval(case, approver=args.approver, reason=args.reason, path=args.memory_path or None)
+        print(f"反馈状态：{result['status']}")
+        print(f"原因：{result.get('reason', result.get('memory', {}).get('approval_reason', ''))}")
+        if result.get("memory"):
+            print(f"记忆ID：{result['memory']['memory_id']}")
+            print(f"金额上限：{result['memory']['amount_limit']}")
 
 
 if __name__ == "__main__":

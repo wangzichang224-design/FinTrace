@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import unittest
+import os
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
 from fintrace.evaluator import evaluate_batch
+from fintrace.feedback import record_manual_approval
 from fintrace.ingestion import match_attachments
 from fintrace.insights import case_failure_reason, optimization_insights, review_queue_rows
 from fintrace.ontology import build_context
@@ -203,6 +205,36 @@ class FinTraceCoreTest(unittest.TestCase):
         self.assertFalse(errors)
         self.assertEqual(route, "need_context")
         self.assertTrue(any(hit["rule_id"] == "R009_CHAT_PROMPT_INJECTION" and hit["rule_class"] == "contextual_risk_signal" for hit in hits))
+
+    def test_human_feedback_memory_approves_same_boundary_case_next_time(self) -> None:
+        root = test_root("feedback_memory")
+        memory_path = root / "approval_memory.json"
+        fields = {
+            "reimbursement_id": "FT-FB-001",
+            "employee_id": "E004",
+            "expense_type": "住宿",
+            "amount": 3300.0,
+            "invoice_no": "FB-001",
+            "has_original_invoice": True,
+            "vendor": "上海虹桥精选酒店",
+            "expense_date": "2026-05-18",
+            "city": "上海",
+        }
+        hits, _ = run_hard_policies(fields)
+        context = build_context(fields)
+        baseline, _ = make_decision(fields, hits, context, llm_mode="mock")
+        self.assertEqual(baseline["decision"], Decision.MANUAL_REVIEW.value)
+
+        case = {"case_id": "FT-FB-001", "parsed_fields": fields, "policy_hits": hits}
+        feedback = record_manual_approval(case, approver="finance_manager", reason="长期协议酒店，人工确认可报销。", path=memory_path)
+        self.assertEqual(feedback["status"], "recorded")
+
+        with patch.dict(os.environ, {"FINTRACE_APPROVAL_MEMORY_PATH": str(memory_path)}):
+            learned, _ = make_decision({**fields, "reimbursement_id": "FT-FB-002", "invoice_no": "FB-002", "amount": 3290.0}, hits, context, llm_mode="mock")
+
+        self.assertEqual(learned["decision"], Decision.APPROVE_WITH_FLEX.value)
+        self.assertEqual(learned["guardrail_status"], "human_feedback_memory_approved")
+        self.assertIn("human_feedback_memory", learned)
 
 
 def test_root(label: str) -> Path:

@@ -4,6 +4,7 @@ import json
 import os
 from typing import Any
 
+from .feedback import find_approval_memory, learned_approval_decision
 from .schemas import Decision, RiskLevel, RuleClass
 
 
@@ -22,6 +23,15 @@ def make_decision(
     baseline = deterministic_decision(fields, policy_hits, context)
     llm_meta: dict[str, Any] = {"enabled": llm_mode == "deepseek", "provider": "deepseek", "status": "not_used"}
     guardrail: dict[str, Any] = {"status": "local_baseline", "action": "use_local_baseline"}
+    if baseline.get("decision") == Decision.MANUAL_REVIEW.value:
+        approval_memory = find_approval_memory(fields, policy_hits)
+        if approval_memory:
+            baseline = learned_approval_decision(baseline, approval_memory)
+            guardrail = {
+                "status": "human_feedback_memory_matched",
+                "action": "use_learned_approval",
+                "memory_id": approval_memory.get("memory_id"),
+            }
 
     if llm_mode == "deepseek":
         if os.getenv("DEEPSEEK_API_KEY"):
@@ -195,6 +205,17 @@ def apply_llm_guardrails(
         guarded["guardrail_status"] = "llm_blocked_by_blocking_control"
         return guarded, {"status": "blocked", "reason": "LLM 不允许覆盖阻断控制", "action": "use_local_baseline"}
 
+    if baseline.get("guardrail_status") == "human_feedback_memory_approved":
+        llm_confidence = float(llm_decision.get("confidence") or 0)
+        if llm_confidence < 0.7 or not llm_decision.get("evidence_refs") or llm_decision.get("decision") != baseline.get("decision"):
+            guarded = dict(baseline)
+            guarded["guardrail_status"] = "llm_fallback_to_feedback_memory"
+            return guarded, {
+                "status": "fallback",
+                "reason": "DeepSeek 未稳定复现历史人工通过记忆，按本地受控例外记忆处理。",
+                "action": "use_feedback_memory",
+            }
+
     confidence = float(llm_decision.get("confidence") or 0)
     if confidence < 0.7:
         return manual_review_from_guardrail(
@@ -217,6 +238,15 @@ def apply_llm_guardrails(
             "企业本体处于冷启动或缺少关键上下文，LLM 柔性通过被门控。",
             ["context_quality"],
         )
+
+    if baseline.get("guardrail_status") == "human_feedback_memory_approved" and llm_decision.get("decision") != baseline.get("decision"):
+        guarded = dict(baseline)
+        guarded["guardrail_status"] = "llm_conflict_with_feedback_memory_fallback"
+        return guarded, {
+            "status": "fallback",
+            "reason": "DeepSeek 与历史人工通过记忆不一致，按本地受控例外记忆处理。",
+            "action": "use_feedback_memory",
+        }
 
     if llm_decision.get("decision") != baseline.get("decision"):
         return manual_review_from_guardrail(
@@ -291,6 +321,7 @@ def reasoning_summary(
             "先执行阻断控制，缺原件、精确重复票和供应商黑名单不允许被 LLM 覆盖。",
             "上下文风险信号不直接硬拒绝，进入本地稳定模型或人工复核。",
             "企业本体处于冷启动时，超标案件不允许自动柔性通过。",
+            "历史人工通过只沉淀为受控例外记忆，不能覆盖阻断控制、重复票、黑名单、OCR 冲突或提示注入。",
             "DeepSeek 只作为结构化审计底稿增强层，必须通过证据、置信度和本地基准一致性门控。",
         ],
         "final_decision": decision,

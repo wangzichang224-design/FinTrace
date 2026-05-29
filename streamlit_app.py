@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from fintrace.evaluator import run_redteam_evaluation
+from fintrace.feedback import record_manual_approval
 from fintrace.insights import case_failure_reason, debug_focus, next_action, optimization_insights, review_queue_rows
 from fintrace.pipeline import run_batch
 from fintrace.redteam import generate_redteam_batch
@@ -273,6 +274,18 @@ def render_finance_case_detail(case: dict) -> None:
                 "诊断焦点": debug_focus(case),
             }
         )
+    if decision.get("decision") == "MANUAL_REVIEW":
+        with st.expander("人工通过后沉淀为受控例外", expanded=False):
+            st.caption("仅对未命中阻断控制、重复票、黑名单、OCR 金额冲突、提示注入等底线风险的边界案例生效。")
+            approver = st.text_input("复核人", value="finance_reviewer", key=f"feedback_approver_{case.get('case_id')}")
+            feedback_reason = st.text_area("通过理由", value="人工复核确认业务合理。", key=f"feedback_reason_{case.get('case_id')}")
+            if st.button("记录人工通过并学习", key=f"feedback_record_{case.get('case_id')}"):
+                result = record_manual_approval(case, approver=approver, reason=feedback_reason)
+                if result.get("status") == "recorded":
+                    memory = result["memory"]
+                    st.success(f"已记录受控例外：{memory['memory_id']}。下次相同模式且金额不超过 {memory['amount_limit']} 元时可自动柔性通过。")
+                else:
+                    st.warning(result.get("reason", "该案例不适合沉淀为自动通过记忆。"))
 
 
 def diagnostics_optimization_tab() -> None:

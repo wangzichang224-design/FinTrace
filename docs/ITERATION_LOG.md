@@ -152,3 +152,33 @@
   - 单元测试：11/11 通过。
   - 第二轮 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
   - 新增测试覆盖：附件精确匹配、千分位金额解析、提示注入风险信号。
+
+## Round 7：对标企业 ERP 费控并加入人工通过记忆
+
+- 用户反馈：
+  - 需要明确说明企业 ERP 目前大多如何做费用审核，并对比 FinTrace 做改进。
+  - 希望系统有智能提升：Agent 拿捏不定转人工后，如果人工审核通过，下次遇到相同模式可以直接通过。
+
+- 修改内容：
+  - 新增 `docs/ERP_EXPENSE_BENCHMARK.md`，说明主流 ERP/费控系统的典型链路：员工提交、OCR 回填、政策规则校验、审批流、财务复核、付款和审计日志。
+  - 新增 `fintrace.feedback`，实现受控人工反馈记忆：记录人工通过案例、生成相似模式签名、设置金额上限和有效期、下次审核自动匹配。
+  - 决策引擎接入人工通过记忆：仅当本地稳定模型输出 `MANUAL_REVIEW` 且没有底线风险时，才允许命中记忆后 `APPROVE_WITH_FLEX`。
+  - 前端 `财务审核台` 增加“人工通过后沉淀为受控例外”入口，财务人员可录入复核人和通过理由。
+  - CLI 新增 `feedback-approve` 命令，可从 `batch_result.json` 或单案结果中记录人工通过。
+  - DeepSeek 门控增加记忆保护：如果 DeepSeek 与历史人工通过记忆冲突，系统按本地受控例外记忆处理，而不是让 LLM 推翻人工复核沉淀。
+
+- 风险边界：
+  - 不学习缺原件、重复发票、供应商黑名单、拆票、跨期、相似票号、OCR 金额冲突、审批聊天提示注入。
+  - 只学习同员工、同供应商、同费用类型、同城市/客户/项目下的边界特批模式。
+  - 下一次金额不得超过历史人工通过金额的 105%。
+
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -B -c "import cli, streamlit_app; import fintrace.feedback, fintrace.reasoning; print('import ok')"`
+  - `python cli.py eval --output-root runtime\eval_feedback_memory --n 500 --seed 42`
+  - `Invoke-WebRequest -UseBasicParsing http://localhost:8508`
+
+- 复跑结果：
+  - 单元测试：12/12 通过。
+  - 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
+  - 新增测试覆盖：人工通过记忆能让相同边界案例下一次自动柔性通过。
