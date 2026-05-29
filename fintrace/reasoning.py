@@ -239,6 +239,29 @@ def apply_llm_guardrails(
             ["context_quality"],
         )
 
+    non_amount_contextual_rules = [
+        h
+        for h in policy_hits
+        if h.get("decision_hint") == Decision.MANUAL_REVIEW.value
+        and h.get("rule_class") == RuleClass.CONTEXTUAL_RISK_SIGNAL.value
+        and h.get("rule_id") != "R004_ABSOLUTE_LIMIT"
+    ]
+    if (
+        baseline.get("decision") == Decision.APPROVE_WITH_FLEX.value
+        and baseline.get("guardrail_status") == "local_flex_approved"
+        and llm_decision.get("decision") == Decision.MANUAL_REVIEW.value
+        and not non_amount_contextual_rules
+    ):
+        guarded = dict(baseline)
+        guarded["guardrail_status"] = "llm_conservative_fallback_to_local_flex"
+        guarded["llm_review_reason"] = llm_decision.get("manual_review_reason") or llm_decision.get("reason", "")
+        return guarded, {
+            "status": "fallback",
+            "reason": "DeepSeek conservative conflict without new non-amount risk evidence; use local ontology flex baseline.",
+            "action": "use_local_flex_baseline",
+            "llm_decision": llm_decision.get("decision"),
+        }
+
     if baseline.get("guardrail_status") == "human_feedback_memory_approved" and llm_decision.get("decision") != baseline.get("decision"):
         guarded = dict(baseline)
         guarded["guardrail_status"] = "llm_conflict_with_feedback_memory_fallback"

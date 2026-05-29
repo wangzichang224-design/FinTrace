@@ -215,3 +215,32 @@
 - 对外表述边界：
   - v0.1 做到了个人项目可实现的工程隔离：红队包不依赖蓝队代码，评测使用版本化冻结标注集，不再运行时动态生成样本。
   - 仍不冒充企业级真实盲测；真实红蓝对抗需要独立红队、独立蓝队和独立裁判。
+
+## Round 9：DeepSeek 真实调用评测与门控迭代
+
+- 用户目标：
+  - 使用 DeepSeek API 走一遍“生成新数据 → 测评 → 根据结果迭代”的真实模型路径。
+  - Key 只在单次命令进程环境变量中临时注入，不写入代码、文档、runtime 报告或 Git 提交。
+
+- Round 9.1 基线真实调用：
+  - 命令：`python cli.py eval --output-root runtime\eval_deepseek_live_round1 --n 28 --seed 20260529 --llm-mode deepseek`
+  - 结果：决策准确率 92.86%，硬违规 Precision/Recall/F1 均为 100%，字段准确率 100%，错误案件数 2。
+  - 失败归因：2 个错误均为 `holiday_flex`，本地稳定模型基于节假日本体阈值输出 `APPROVE_WITH_FLEX`，DeepSeek 更保守输出人工复核，旧门控将所有本地/LLM 不一致统一转 `MANUAL_REVIEW`。
+
+- 修改内容：
+  - 调整 `apply_llm_guardrails()`：当本地稳定模型已给出 `local_flex_approved`，且只命中金额类 `R004_ABSOLUTE_LIMIT`，DeepSeek 只是更保守地要求人工复核、没有新增非金额风险证据时，回退采用本地本体柔性通过基准。
+  - 决策中记录 `guardrail_status=llm_conservative_fallback_to_local_flex`，保留 DeepSeek 的保守意见 `llm_review_reason`，方便前端解释“为什么没有采纳 LLM 的人工复核建议”。
+  - 新增单测覆盖该门控策略，避免后续重构把柔性场景重新误转人工。
+
+- Round 9.2 同 seed 复测：
+  - 命令：`python cli.py eval --output-root runtime\eval_deepseek_live_round2 --n 28 --seed 20260529 --llm-mode deepseek`
+  - 结果：决策准确率 100%，硬违规 Precision/Recall/F1 均为 100%，字段准确率 100%，错误案件数 0。
+  - Guardrail 变化：原 `llm_conflict_with_local_baseline` 2 例，变为 `llm_conservative_fallback_to_local_flex` 2 例。
+
+- Round 9.3 新 seed 回归：
+  - 命令：`python cli.py eval --output-root runtime\eval_deepseek_live_round2_newseed --n 42 --seed 20260530 --llm-mode deepseek`
+  - 结果：决策准确率 100%，硬违规 Precision/Recall/F1 均为 100%，柔性放行准确率 100%，字段准确率 100%，错误案件数 0。
+
+- 产品结论：
+  - DeepSeek 适合作为结构化审计底稿增强层，但不能覆盖本地风控边界和企业本体阈值。
+  - 当 LLM 更激进时，必须被 blocking/context guardrail 拦住；当 LLM 只是更保守且没有新风险证据时，可以回退到可解释的本地本体计算，避免把可自动柔性放行的案件过度推给人工。

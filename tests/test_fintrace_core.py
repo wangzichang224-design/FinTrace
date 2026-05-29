@@ -128,6 +128,39 @@ class FinTraceCoreTest(unittest.TestCase):
         self.assertEqual(guarded["guardrail_status"], "llm_low_confidence_manual_review")
         self.assertEqual(guardrail["action"], "manual_review")
 
+    def test_llm_conservative_conflict_uses_local_flex_for_amount_only_signal(self) -> None:
+        baseline = {
+            "decision": Decision.APPROVE_WITH_FLEX.value,
+            "risk_level": "MEDIUM",
+            "confidence": 0.84,
+            "evidence_refs": ["holiday_index", "R004_ABSOLUTE_LIMIT"],
+            "guardrail_status": "local_flex_approved",
+        }
+        llm_decision = {
+            "decision": Decision.MANUAL_REVIEW.value,
+            "risk_level": "MEDIUM",
+            "confidence": 0.86,
+            "evidence_refs": ["holiday_index", "category_benchmark"],
+            "reason": "DeepSeek requests conservative review.",
+        }
+        hits = [
+            {
+                "rule_id": "R004_ABSOLUTE_LIMIT",
+                "rule_class": "contextual_risk_signal",
+                "decision_hint": Decision.MANUAL_REVIEW.value,
+            }
+        ]
+        guarded, guardrail = apply_llm_guardrails(
+            llm_decision,
+            baseline,
+            hits,
+            {"context_quality": {"allow_flexible_approval": True}},
+        )
+
+        self.assertEqual(guarded["decision"], Decision.APPROVE_WITH_FLEX.value)
+        self.assertEqual(guarded["guardrail_status"], "llm_conservative_fallback_to_local_flex")
+        self.assertEqual(guardrail["action"], "use_local_flex_baseline")
+
     def test_case_failure_does_not_rollback_batch(self) -> None:
         class BrokenGraph:
             def invoke(self, _state):
