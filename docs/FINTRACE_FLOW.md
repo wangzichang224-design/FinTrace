@@ -12,7 +12,7 @@ flowchart LR
     D --> E["本地稳定模型<br/>阻断控制 + 上下文风险信号 + 冷启动门控"]
     E --> F["可解释结果导出<br/>batch_result / case_result / traces.jsonl"]
 
-    G["v0.2 展示增强<br/>Streamlit 控制台"] -.-> F
+    G["v0.2 展示增强<br/>财务审核台 + 诊断与优化台"] -.-> F
     H["v0.2 LLM 增强<br/>DeepSeek 结构化审计底稿"] -.-> E
     I["v0.2 评测增强<br/>红蓝评测 / 高仿真数据"] -.-> F
 ```
@@ -42,7 +42,7 @@ flowchart LR
 
     J --> O["Trace Export<br/>字段、规则、本体、推理、路由、错误全部落盘"]
     N --> O
-    O --> P["控制台/报告<br/>案件列表、审计探针、字段溯源、规则调试、批量指标"]
+    O --> P["前端/报告<br/>财务审核台、诊断与优化台、评测与迭代"]
 ```
 
 ## 3. 双层 LangGraph 状态机

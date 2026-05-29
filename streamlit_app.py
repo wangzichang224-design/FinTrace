@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from fintrace.evaluator import run_redteam_evaluation
+from fintrace.insights import case_failure_reason, debug_focus, next_action, optimization_insights, review_queue_rows
 from fintrace.pipeline import run_batch
 from fintrace.redteam import generate_redteam_batch
 
@@ -58,6 +59,8 @@ st.markdown(
     .small-muted {color: #657282; font-size: .84rem;}
     .decision-pill {display: inline-block; padding: .18rem .48rem; border-radius: 4px; background: #eaf2ff; color: #174ea6; font-weight: 650;}
     .risk-pill {display: inline-block; padding: .18rem .48rem; border-radius: 4px; background: #fff4e5; color: #8a4b00; font-weight: 650;}
+    .action-box {border-left: 4px solid #2f80ed; background: #f7fbff; padding: .7rem .85rem; border-radius: 4px; margin: .45rem 0;}
+    .danger-box {border-left: 4px solid #c53030; background: #fff5f5; padding: .7rem .85rem; border-radius: 4px; margin: .45rem 0;}
     div[data-testid="stTabs"] button p {font-size: .95rem;}
     </style>
     """,
@@ -68,30 +71,20 @@ st.markdown(
 def main() -> None:
     init_state()
     render_sidebar()
-    st.markdown('<div class="fintrace-title">FinTrace v0.1 批量费控 MVP</div>', unsafe_allow_html=True)
+    st.markdown('<div class="fintrace-title">FinTrace 财务审核工作台</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="fintrace-subtitle">MVP 主链路：CSV/XLSX 批量导入 -> 字段溯源 -> 本地稳定模型/规则审查 -> 可解释结果导出。DeepSeek、红蓝评测和控制台是 v0.2 展示增强层。</div>',
+        '<div class="fintrace-subtitle">给财务同事日常批量初审使用：先看待处理案件、原因和建议动作；需要排查漏洞时再进入诊断与优化台。</div>',
         unsafe_allow_html=True,
     )
-    st.info("产品边界：FinTrace 先做批量初筛和错误定位，不替代 ERP、不直接自动放款、不让 LLM 覆盖阻断控制。")
+    st.info("当前定位：v0.1 MVP 负责 CSV/XLSX 批量导入、字段溯源、本地稳定模型/规则审查和可解释结果导出；DeepSeek、红蓝评测是增强展示层。")
 
-    tabs = st.tabs(["批量处理台", "案件列表", "审计探针", "字段溯源", "规则调试台", "批量指标", "红蓝评测台", "迭代记录"])
+    tabs = st.tabs(["财务审核台", "诊断与优化台", "评测与迭代"])
     with tabs[0]:
-        batch_processing_tab()
+        finance_review_tab()
     with tabs[1]:
-        case_explorer_tab()
+        diagnostics_optimization_tab()
     with tabs[2]:
-        audit_probe_tab()
-    with tabs[3]:
-        field_provenance_tab()
-    with tabs[4]:
-        rule_debugger_tab()
-    with tabs[5]:
-        batch_metrics_tab()
-    with tabs[6]:
-        evaluation_tab()
-    with tabs[7]:
-        iteration_tab()
+        showcase_tab()
 
 
 def init_state() -> None:
@@ -120,6 +113,277 @@ def render_sidebar() -> None:
     os.environ["DEEPSEEK_MODEL"] = model.strip() or "deepseek-chat"
 
 
+def finance_review_tab() -> None:
+    st.subheader("财务审核台")
+    st.markdown(
+        '<div class="section-note">财务同事只需要完成三件事：导入批次、查看待处理案件、按建议动作处理。复杂链路放到诊断与优化台。</div>',
+        unsafe_allow_html=True,
+    )
+    left, right = st.columns([0.34, 0.66], gap="large")
+    with left:
+        st.markdown("#### 导入批次")
+        local_path = st.text_input("本地文件/文件夹路径", value="", placeholder=r"D:\03_AI_Projects\FinTrace\runtime\demo\demo_xxxx", key="finance_local_path")
+        uploaded = st.file_uploader(
+            "上传 ERP 导出、OCR 文本、PDF/图片附件或 ZIP 包",
+            type=["csv", "xlsx", "xls", "txt", "md", "pdf", "png", "jpg", "jpeg", "zip"],
+            accept_multiple_files=True,
+            key="finance_upload",
+        )
+        with st.expander("高级设置", expanded=False):
+            llm_mode = st.radio(
+                "推理模式",
+                ["mock", "deepseek"],
+                horizontal=True,
+                key="finance_llm_mode",
+                format_func=lambda v: "本地稳定模型" if v == "mock" else "DeepSeek 结构化推理",
+            )
+            max_workers = st.slider("并发处理线程数", min_value=1, max_value=8, value=4, key="finance_workers")
+        run_clicked = st.button("运行批量审核", width="stretch", type="primary", key="finance_run")
+        demo_clicked = st.button("生成演示批次", width="stretch", key="finance_demo")
+
+    with right:
+        result = st.session_state.get("batch_result")
+        if result:
+            render_finance_overview(result)
+        else:
+            st.info("还没有运行批次。录屏展示时可以先点“生成演示批次”，系统会生成一批高仿真 ERP 报销和附件。")
+
+    if demo_clicked:
+        demo_dir = DEMO_ROOT / f"demo_{uuid4().hex[:8]}"
+        with st.spinner("正在生成高仿真 ERP 批次并运行审核..."):
+            info = generate_redteam_batch(demo_dir, n=80, seed=42)
+            st.session_state["batch_result"] = run_batch([info["source_dir"]], output_root=RUNTIME / "batches", llm_mode=llm_mode, max_workers=max_workers)
+            st.session_state["ground_truth_path"] = info["ground_truth_path"]
+        st.rerun()
+
+    if run_clicked:
+        source_paths = []
+        if local_path.strip():
+            source_paths.append(local_path.strip())
+        if uploaded:
+            upload_dir = save_uploaded_files(uploaded)
+            source_paths.append(str(upload_dir))
+        if not source_paths:
+            st.warning("请至少提供一个本地路径或上传文件。")
+            return
+        with st.spinner("正在扫描 manifest、归并案件包并执行批量审核..."):
+            st.session_state["batch_result"] = run_batch(source_paths, output_root=RUNTIME / "batches", llm_mode=llm_mode, max_workers=max_workers)
+        st.rerun()
+
+    result = st.session_state.get("batch_result")
+    if not result:
+        return
+
+    st.divider()
+    st.markdown("#### 待处理案件池")
+    queue_df = pd.DataFrame(review_queue_rows(result))
+    if queue_df.empty:
+        st.warning("当前批次没有案件。")
+        return
+
+    f1, f2, f3, f4 = st.columns([0.2, 0.2, 0.22, 0.38])
+    decision_filter = f1.multiselect("决策", sorted(queue_df["决策"].dropna().unique()), key="finance_decision_filter")
+    risk_filter = f2.multiselect("风险", sorted(queue_df["风险"].dropna().unique()), key="finance_risk_filter")
+    focus_filter = f3.multiselect("诊断焦点", sorted(queue_df["诊断焦点"].dropna().unique()), key="finance_focus_filter")
+    keyword = f4.text_input("搜索员工/单号/供应商/发票号", key="finance_keyword")
+
+    view = queue_df.copy()
+    if decision_filter:
+        view = view[view["决策"].isin(decision_filter)]
+    if risk_filter:
+        view = view[view["风险"].isin(risk_filter)]
+    if focus_filter:
+        view = view[view["诊断焦点"].isin(focus_filter)]
+    if keyword.strip():
+        needle = keyword.strip()
+        view = view[view.apply(lambda row: needle in " ".join(map(str, row.values)), axis=1)]
+
+    st.dataframe(
+        view,
+        width="stretch",
+        hide_index=True,
+        column_order=["报销单号", "员工", "部门", "费用类型", "供应商", "金额", "决策", "风险", "不通过/复核原因", "建议动作", "诊断焦点"],
+    )
+
+    selected_case = select_case_from_rows(result, view, "finance_case_detail")
+    if selected_case:
+        render_finance_case_detail(selected_case)
+
+
+def render_finance_overview(result: dict) -> None:
+    insights = optimization_insights(result)
+    summary = insights["summary"]
+    metrics = result.get("batch_metrics", {})
+    cols = st.columns(5)
+    cols[0].metric("案件总数", summary["案件总数"])
+    cols[1].metric("自动通过", summary["通过"])
+    cols[2].metric("人工复核", summary["人工复核"])
+    cols[3].metric("拒绝/升级", summary["阻断/升级"])
+    cols[4].metric("失败案件", summary["失败案件"])
+    st.caption(metrics.get("partial_failure_policy", "批处理中单案失败会留痕并转人工，不回滚整个批次。"))
+    if insights["top_issues"]:
+        top = pd.DataFrame(insights["top_issues"]).head(5)
+        st.markdown("#### 本批次最值得先看的问题")
+        st.dataframe(top, width="stretch", hide_index=True)
+
+
+def select_case_from_rows(result: dict, rows: pd.DataFrame, key: str) -> dict | None:
+    if rows.empty:
+        return None
+    options = []
+    for _, row in rows.iterrows():
+        options.append(f"{row['报销单号']}｜{row['员工']}｜{row['决策']}｜{row['金额']}｜{row['case_id']}")
+    selected = st.selectbox("查看案件处理建议", options, key=key)
+    case_id = selected.rsplit("｜", 1)[-1]
+    return next((case for case in result.get("case_results", []) if case.get("case_id") == case_id), None)
+
+
+def render_finance_case_detail(case: dict) -> None:
+    st.markdown("#### 当前案件处理建议")
+    decision = case.get("decision", {})
+    fields = case.get("parsed_fields", {})
+    decision_text = DECISION_LABELS.get(decision.get("decision"), decision.get("decision"))
+    risk_text = RISK_LABELS.get(decision.get("risk_level"), decision.get("risk_level"))
+    reason = case_failure_reason(case)
+    action = next_action(case)
+    box_class = "danger-box" if decision.get("decision") in {"REJECT", "ESCALATE_FRAUD"} else "action-box"
+    st.markdown(
+        f"""
+        <div class="{box_class}">
+          <b>{decision_text}</b>｜风险：{risk_text}｜置信度：{decision.get('confidence')}<br/>
+          <b>原因：</b>{reason}<br/>
+          <b>建议动作：</b>{action}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("金额", fields.get("amount", ""))
+    c2.metric("费用类型", fields.get("expense_type", ""))
+    c3.metric("供应商", fields.get("vendor", ""))
+    c4.metric("发票号", fields.get("invoice_no", ""))
+    with st.expander("查看审计摘要和证据引用", expanded=False):
+        trace = case.get("reasoning_trace", {})
+        st.write(trace.get("reasoning_summary") or decision.get("reason") or "暂无审计摘要。")
+        st.json(
+            {
+                "证据引用": decision.get("evidence_refs", []),
+                "人工复核原因": decision.get("manual_review_reason", ""),
+                "门控状态": decision.get("guardrail_status", ""),
+                "诊断焦点": debug_focus(case),
+            }
+        )
+
+
+def diagnostics_optimization_tab() -> None:
+    result = require_batch()
+    if not result:
+        return
+    st.subheader("诊断与优化台")
+    st.markdown(
+        '<div class="section-note">这里给产品/风控/财务主管排查：为什么不通过、卡在哪个节点、规则阈值和本体上下文该怎么优化。</div>',
+        unsafe_allow_html=True,
+    )
+    insights = optimization_insights(result)
+    s = insights["summary"]
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("需处理案件", s["需处理案件"])
+    c2.metric("人工复核", s["人工复核"])
+    c3.metric("拒绝/升级", s["阻断/升级"])
+    c4.metric("失败案件", s["失败案件"])
+    c5.metric("通过案件", s["通过"])
+
+    st.markdown("#### 漏洞与优化优先级")
+    if insights["top_issues"]:
+        st.dataframe(pd.DataFrame(insights["top_issues"]), width="stretch", hide_index=True)
+    else:
+        st.success("本批次暂未发现需要优先优化的问题。")
+
+    st.markdown("#### 查询具体案件")
+    rows = pd.DataFrame(review_queue_rows(result))
+    query = st.text_input("输入员工、报销单号、供应商、规则 ID、错误类型或诊断焦点", key="diagnostic_query")
+    if query.strip():
+        needle = query.strip()
+        rows = rows[rows.apply(lambda row: needle in " ".join(map(str, row.values)), axis=1)]
+    st.dataframe(
+        rows,
+        width="stretch",
+        hide_index=True,
+        column_order=["报销单号", "员工", "费用类型", "金额", "决策", "风险", "不通过/复核原因", "建议动作", "诊断焦点"],
+    )
+
+    case = select_case_from_rows(result, rows, "diagnostic_case_selector")
+    if not case:
+        return
+
+    detail_tabs = st.tabs(["不通过原因", "运行链路", "规则与本体", "字段溯源"])
+    with detail_tabs[0]:
+        st.markdown("#### 不通过 / 复核原因")
+        st.warning(case_failure_reason(case))
+        st.info(f"建议动作：{next_action(case)}")
+        st.markdown("#### 定位建议")
+        st.write(debug_recommendation(case))
+        st.markdown("#### 结构化审计底稿")
+        st.json(case.get("reasoning_trace", {}))
+    with detail_tabs[1]:
+        st.markdown("#### 节点运行过程")
+        for event in case.get("debug_events", []):
+            render_trace_event(event)
+    with detail_tabs[2]:
+        st.markdown("#### 命中控制 / 风险信号")
+        hits = case.get("policy_hits", [])
+        if hits:
+            hit_df = pd.DataFrame(hits)
+            if "rule_class" in hit_df:
+                hit_df["rule_class_cn"] = hit_df["rule_class"].map(lambda v: RULE_CLASS_LABELS.get(v, v))
+            st.dataframe(hit_df, width="stretch", hide_index=True)
+        else:
+            st.success("未命中阻断控制或上下文风险信号。")
+        st.markdown("#### 企业本体质量")
+        st.json(case.get("context_info", {}).get("context_quality", {}))
+        calls = case.get("context_info", {}).get("tool_calls", [])
+        if calls:
+            st.markdown("#### 本体工具调用")
+            st.dataframe(pd.DataFrame(calls), width="stretch", hide_index=True)
+    with detail_tabs[3]:
+        field_provenance_case_view(case)
+
+
+def field_provenance_case_view(case: dict) -> None:
+    fields = case.get("parsed_fields", {})
+    if not fields:
+        st.info("该案件没有解析出结构化字段。")
+        return
+    c1, c2 = st.columns([0.42, 0.58], gap="large")
+    with c1:
+        field = st.selectbox("选择字段", sorted(fields.keys()), key=f"diagnostic_field_{case.get('case_id')}")
+        provenance = case.get("field_provenance", {}).get(field, [])
+        st.json({"字段": field, "当前值": fields.get(field), "来源": provenance})
+        source_paths = {src.get("source_path") for src in provenance}
+        for artifact in case.get("raw_artifacts", []):
+            if artifact.get("path") in source_paths or not provenance:
+                with st.expander(Path(artifact.get("path", "")).name):
+                    st.text_area(
+                        "原始片段",
+                        value=(artifact.get("text") or json.dumps(artifact.get("records", []), ensure_ascii=False, indent=2))[:4000],
+                        height=180,
+                        disabled=True,
+                        key=f"diag_field_{artifact.get('artifact_id')}",
+                    )
+    with c2:
+        st.dataframe(field_rows(case), width="stretch", hide_index=True)
+
+
+def showcase_tab() -> None:
+    tabs = st.tabs(["红蓝评测", "批量指标", "迭代记录"])
+    with tabs[0]:
+        evaluation_tab()
+    with tabs[1]:
+        batch_metrics_tab()
+    with tabs[2]:
+        iteration_tab()
+
+
 def batch_processing_tab() -> None:
     st.subheader("批量处理台")
     st.markdown('<div class="section-note">支持多文件上传、ZIP 包、文件夹路径输入，模拟企业 ERP 批量审单。</div>', unsafe_allow_html=True)
@@ -134,8 +398,8 @@ def batch_processing_tab() -> None:
         llm_mode = st.radio("推理模式", ["mock", "deepseek"], horizontal=True, format_func=lambda v: "本地稳定模型" if v == "mock" else "DeepSeek 结构化推理")
         max_workers = st.slider("并发处理线程数", min_value=1, max_value=8, value=4)
         c1, c2 = st.columns(2)
-        run_clicked = c1.button("运行批量审查", use_container_width=True, type="primary")
-        demo_clicked = c2.button("生成高仿真样本并运行", use_container_width=True)
+        run_clicked = c1.button("运行批量审查", width="stretch", type="primary")
+        demo_clicked = c2.button("生成高仿真样本并运行", width="stretch")
 
     with right:
         result = st.session_state.get("batch_result")
@@ -175,7 +439,7 @@ def batch_processing_tab() -> None:
         manifest_df = pd.DataFrame(result.get("manifest", []))
         if not manifest_df.empty:
             manifest_df["artifact_type"] = manifest_df["artifact_type"].map(lambda v: ARTIFACT_LABELS.get(v, v))
-        st.dataframe(manifest_df, use_container_width=True, hide_index=True)
+        st.dataframe(manifest_df, width="stretch", hide_index=True)
         st.markdown("#### 错误定位台")
         render_error_registry(result)
 
@@ -241,7 +505,7 @@ def case_explorer_tab() -> None:
 
     st.dataframe(
         view.drop(columns=["error_types", "decision", "risk_level"]),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_order=["case_id", "decision_cn", "risk_level_cn", "amount", "expense_type", "employee_name", "department", "vendor", "invoice_no", "confidence", "guardrail_status", "reason"],
     )
@@ -314,7 +578,7 @@ def field_provenance_tab() -> None:
                     st.text_area("文本片段", value=(artifact.get("text") or json.dumps(artifact.get("records", []), ensure_ascii=False, indent=2))[:4000], height=180, disabled=True, key=f"field_{artifact.get('artifact_id')}")
     with c2:
         st.markdown("#### 结构化字段")
-        st.dataframe(field_rows(case), use_container_width=True, hide_index=True)
+        st.dataframe(field_rows(case), width="stretch", hide_index=True)
 
 
 def rule_debugger_tab() -> None:
@@ -339,16 +603,16 @@ def rule_debugger_tab() -> None:
             hit_df = pd.DataFrame(hits)
             if "rule_class" in hit_df:
                 hit_df["rule_class_cn"] = hit_df["rule_class"].map(lambda v: RULE_CLASS_LABELS.get(v, v))
-            st.dataframe(hit_df, use_container_width=True, hide_index=True)
+            st.dataframe(hit_df, width="stretch", hide_index=True)
         else:
             st.success("未命中阻断控制或上下文风险信号。")
         st.markdown("#### 未命中规则")
         missed = missed_rules(hits)
-        st.dataframe(pd.DataFrame(missed), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(missed), width="stretch", hide_index=True)
         st.markdown("#### 企业本体工具调用")
         calls = case.get("context_info", {}).get("tool_calls", [])
         if calls:
-            st.dataframe(pd.DataFrame(calls), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(calls), width="stretch", hide_index=True)
             st.markdown("#### 本体冷启动质量")
             st.json(case.get("context_info", {}).get("context_quality", {}))
         else:
@@ -368,11 +632,11 @@ def batch_metrics_tab() -> None:
         file_df = pd.DataFrame(
             {"文件类型": [ARTIFACT_LABELS.get(k, k) for k in metrics.get("file_type_distribution", {})], "数量": list(metrics.get("file_type_distribution", {}).values())}
         )
-        st.dataframe(file_df, use_container_width=True, hide_index=True)
+        st.dataframe(file_df, width="stretch", hide_index=True)
     with c2:
         st.markdown("#### 节点事件与失败")
         node_df = pd.DataFrame({"节点": list(metrics.get("node_event_counts", {}).keys()), "事件数": list(metrics.get("node_event_counts", {}).values())})
-        st.dataframe(node_df, use_container_width=True, hide_index=True)
+        st.dataframe(node_df, width="stretch", hide_index=True)
         st.metric("节点失败数", metrics.get("node_failure_count", 0))
         st.metric("失败案件数", metrics.get("case_failed_count", 0))
         st.caption(metrics.get("partial_failure_policy", "部分失败策略未记录"))
@@ -427,7 +691,7 @@ def iteration_tab() -> None:
             )
         except json.JSONDecodeError:
             continue
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def render_evaluation_report(report: dict) -> None:
@@ -440,28 +704,28 @@ def render_evaluation_report(report: dict) -> None:
     m5.metric("字段准确率", f"{metrics['field_accuracy']:.1%}")
     st.caption(f"批次：{report['batch_id']} | 产物目录：{report['work_dir']}")
     target_df = pd.DataFrame([{"目标": k, "是否达成": "达成" if v else "未达成"} for k, v in metrics.get("target_status", {}).items()])
-    st.dataframe(target_df, use_container_width=True, hide_index=True)
+    st.dataframe(target_df, width="stretch", hide_index=True)
     c1, c2 = st.columns(2, gap="large")
     with c1:
         st.markdown("#### 场景分布")
         scenario = metrics.get("scenario_breakdown", {})
-        st.dataframe(pd.DataFrame([{"场景": k, **v} for k, v in scenario.items()]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame([{"场景": k, **v} for k, v in scenario.items()]), width="stretch", hide_index=True)
     with c2:
         st.markdown("#### 错误类型")
         errors = metrics.get("error_type_counts", {})
         if errors:
-            st.dataframe(pd.DataFrame({"错误类型": list(errors.keys()), "数量": list(errors.values())}), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame({"错误类型": list(errors.keys()), "数量": list(errors.values())}), width="stretch", hide_index=True)
         else:
             st.success("本轮没有 case 级错误。")
     if metrics["case_errors"]:
         st.markdown("#### 错误 Drill-down")
-        st.dataframe(pd.DataFrame(metrics["case_errors"]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(metrics["case_errors"]), width="stretch", hide_index=True)
 
 
 def require_batch() -> dict | None:
     result = st.session_state.get("batch_result")
     if not result:
-        st.info("请先在“批量处理台”运行一个批次。")
+        st.info("请先在“财务审核台”运行一个批次。")
         return None
     return result
 
@@ -558,7 +822,7 @@ def render_error_registry(result: dict) -> None:
         return
     for category, rows in registry.items():
         with st.expander(f"{category} | {len(rows)} 条"):
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def missed_rules(hits: list[dict]) -> list[dict[str, str]]:

@@ -6,6 +6,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from fintrace.evaluator import evaluate_batch
+from fintrace.insights import case_failure_reason, optimization_insights, review_queue_rows
 from fintrace.ontology import build_context
 from fintrace.pipeline import run_batch
 from fintrace.policies import run_hard_policies
@@ -135,6 +136,22 @@ class FinTraceCoreTest(unittest.TestCase):
         self.assertEqual(result["batch_metrics"]["case_failed_count"], 3)
         self.assertEqual(result["batch_metrics"]["decision_counts"].get(Decision.MANUAL_REVIEW.value), 3)
         self.assertIn("case_processing_failed", result["error_registry"])
+
+    def test_finance_insights_surface_reason_and_optimization_focus(self) -> None:
+        root = test_root("finance_insights")
+        data = generate_redteam_batch(root / "data", n=20, seed=5)
+        result = run_batch([data["source_dir"]], output_root=root / "runs", batch_id="finance-insights", max_workers=1)
+        rows = review_queue_rows(result)
+        insights = optimization_insights(result)
+
+        self.assertEqual(len(rows), result["batch_metrics"]["case_count"])
+        self.assertTrue(all(row["不通过/复核原因"] for row in rows))
+        self.assertTrue(all(row["建议动作"] for row in rows))
+        self.assertIn("案件总数", insights["summary"])
+        self.assertTrue(insights["top_issues"])
+
+        blocked_case = next(case for case in result["case_results"] if case["decision"]["decision"] in {Decision.REJECT.value, Decision.ESCALATE_FRAUD.value})
+        self.assertTrue(any(keyword in case_failure_reason(blocked_case) for keyword in ("阻断控制", "反舞弊", "拒绝", "缺少")))
 
 
 def test_root(label: str) -> Path:
