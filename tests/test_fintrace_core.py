@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import unittest
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from fintrace.evaluator import evaluate_batch
+from fintrace.evaluator import run_frozen_evaluation
 from fintrace.feedback import record_manual_approval
 from fintrace.ingestion import match_attachments
 from fintrace.insights import case_failure_reason, optimization_insights, review_queue_rows
@@ -235,6 +237,33 @@ class FinTraceCoreTest(unittest.TestCase):
         self.assertEqual(learned["decision"], Decision.APPROVE_WITH_FLEX.value)
         self.assertEqual(learned["guardrail_status"], "human_feedback_memory_approved")
         self.assertIn("human_feedback_memory", learned)
+
+    def test_isolated_redteam_generator_has_no_fintrace_dependency_and_frozen_eval_runs(self) -> None:
+        from redteam.generator import generate_frozen_dataset
+
+        source = (Path(__file__).resolve().parents[1] / "redteam" / "generator.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        fintrace_imports = [
+            node
+            for node in ast.walk(tree)
+            if (
+                isinstance(node, ast.ImportFrom)
+                and (node.module or "").startswith("fintrace")
+            )
+            or (
+                isinstance(node, ast.Import)
+                and any(alias.name.startswith("fintrace") for alias in node.names)
+            )
+        ]
+        self.assertFalse(fintrace_imports)
+
+        root = test_root("frozen_eval")
+        data = generate_frozen_dataset(root / "frozen_dataset", n=28, seed=20260529)
+        report = run_frozen_evaluation(data["source_dir"], output_root=root / "reports", llm_mode="mock")
+
+        self.assertEqual(report["evaluation_mode"], "frozen_dataset")
+        self.assertEqual(report["metrics"]["total_cases"], 28)
+        self.assertGreaterEqual(report["metrics"]["hard_recall"], 0.99)
 
 
 def test_root(label: str) -> Path:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from fintrace.evaluator import run_redteam_evaluation
+from fintrace.evaluator import run_frozen_evaluation, run_redteam_evaluation
 from fintrace.feedback import record_manual_approval
 from fintrace.pipeline import run_batch
 from fintrace.redteam import generate_redteam_batch
@@ -31,6 +31,17 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--n", type=int, default=80)
     ev.add_argument("--seed", type=int, default=42)
     ev.add_argument("--llm-mode", choices=["mock", "deepseek"], default="mock")
+
+    freeze = sub.add_parser("redteam-freeze", help="生成物理隔离的冻结红队数据集")
+    freeze.add_argument("--output-dir", default="datasets/fintrace-redteam-v1")
+    freeze.add_argument("--n", type=int, default=84)
+    freeze.add_argument("--seed", type=int, default=20260529)
+
+    ev_frozen = sub.add_parser("eval-frozen", help="读取冻结红队数据集运行评测，不重新生成数据")
+    ev_frozen.add_argument("frozen_data_dir", help="包含 ground_truth.json 的冻结数据集目录")
+    ev_frozen.add_argument("--output-root", default="runtime/eval_frozen")
+    ev_frozen.add_argument("--llm-mode", choices=["mock", "deepseek"], default="mock")
+    ev_frozen.add_argument("--batch-id", default="")
 
     feedback = sub.add_parser("feedback-approve", help="记录一笔人工复核通过案例，沉淀为受控例外记忆")
     feedback.add_argument("batch_result", help="batch_result.json 或单案 case_result.json 路径")
@@ -69,6 +80,30 @@ def main() -> None:
         print(f"硬违规 Precision：{metrics['hard_precision']:.2%}")
         print(f"硬违规 Recall：{metrics['hard_recall']:.2%}")
         print(f"硬违规 F1：{metrics['hard_f1']:.2%}")
+        print(f"字段准确率：{metrics['field_accuracy']:.2%}")
+        print(f"错误案件数：{len(metrics['case_errors'])}")
+        print(f"目标达成：{metrics.get('target_status')}")
+    elif args.cmd == "redteam-freeze":
+        from redteam.generator import generate_frozen_dataset
+
+        info = generate_frozen_dataset(Path(args.output_dir), n=args.n, seed=args.seed)
+        print(f"冻结红队数据集已生成：{info['source_dir']}")
+        print(f"ERP 导出：{info['erp_path']}")
+        print(f"冻结标注：{info['ground_truth_path']}")
+    elif args.cmd == "eval-frozen":
+        report = run_frozen_evaluation(
+            args.frozen_data_dir,
+            output_root=Path(args.output_root),
+            llm_mode=args.llm_mode,
+            batch_id=args.batch_id or None,
+        )
+        metrics = report["metrics"]
+        print(f"冻结评测批次：{report['batch_id']}")
+        print(f"数据集：{report['dataset_version']}")
+        print(f"产物目录：{report['work_dir']}")
+        print(f"决策准确率：{metrics['decision_accuracy']:.2%}")
+        print(f"硬违规 Precision：{metrics['hard_precision']:.2%}")
+        print(f"硬违规 Recall：{metrics['hard_recall']:.2%}")
         print(f"字段准确率：{metrics['field_accuracy']:.2%}")
         print(f"错误案件数：{len(metrics['case_errors'])}")
         print(f"目标达成：{metrics.get('target_status')}")

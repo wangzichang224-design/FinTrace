@@ -182,3 +182,36 @@
   - 单元测试：12/12 通过。
   - 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
   - 新增测试覆盖：人工通过记忆能让相同边界案例下一次自动柔性通过。
+
+## Round 8：红蓝评测物理隔离整改
+
+- 用户/评审问题：
+  - 原 `eval` 在同一次调用里完成红队数据生成、蓝队审核和裁判评测，属于动态灰盒自测，不是严格红蓝对抗。
+  - 红队数据、蓝队规则和裁判标注都在同一包内，容易变成“验证系统是否符合作者预期”，而不是验证系统是否能经受未知攻击。
+  - 每次评测运行时重新生成样本，规则修改后的前后版本缺少同一冻结标注集上的可比性。
+
+- 修改内容：
+  - 新增顶层 `redteam/` 独立包，冻结数据生成器不 import `fintrace.*`，不复用蓝队 `Decision`、`policies.py` 或 `reasoning.py`。
+  - 新增 `datasets/fintrace-redteam-v1` 冻结数据集，包含 ERP CSV、OCR/审批聊天附件、`ground_truth.json` 和 `dataset_manifest.json`。
+  - CLI 新增 `redteam-freeze` 与 `eval-frozen`：前者生成冻结集，后者只读冻结目录评测，不在评测时重新生成样本。
+  - `run_redteam_evaluation()` 保留为开发灰盒自测，并在报告中标记 `evaluation_mode=dynamic_graybox_generation`；`run_frozen_evaluation()` 标记为 `evaluation_mode=frozen_dataset`。
+  - 新增 `docs/RED_BLUE_ISOLATION.md`，明确三层隔离：代码依赖隔离、冻结数据隔离、裁判只读冻结标注。
+  - 修复隔离测试：用 AST 检查 `redteam/generator.py` 是否存在 `import fintrace` / `from fintrace...`，不再因为元数据里出现项目名而误判失败。
+
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval-frozen datasets\fintrace-redteam-v1 --output-root runtime\eval_frozen`
+  - `python cli.py eval --output-root runtime\eval_dynamic_smoke --n 140 --seed 42`
+  - `python -B -c "import cli; import fintrace.evaluator; import redteam.generator; print('import ok')"`
+  - `rg -n "sk-[0-9a-fA-F]{16,}" -S .`
+  - `git diff --check`
+
+- 复跑结果：
+  - 单元测试：13/13 通过，新增隔离测试确认顶层 `redteam/` 包没有 import `fintrace.*`。
+  - 冻结数据集评测：84 条样本，决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，字段准确率 100%，错误案件数 0。
+  - 动态灰盒烟测：140 条样本，决策准确率 100%，硬违规 Precision/Recall/F1 均为 100%，字段准确率 100%，错误案件数 0。
+  - 安全检查：未检出 `sk-...` 形式 API Key；`git diff --check` 无空白错误。
+
+- 对外表述边界：
+  - v0.1 做到了个人项目可实现的工程隔离：红队包不依赖蓝队代码，评测使用版本化冻结标注集，不再运行时动态生成样本。
+  - 仍不冒充企业级真实盲测；真实红蓝对抗需要独立红队、独立蓝队和独立裁判。

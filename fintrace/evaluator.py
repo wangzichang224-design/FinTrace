@@ -47,6 +47,8 @@ def run_redteam_evaluation(
     report = {
         "report_name": "FinTrace 红蓝对抗评测报告",
         "dataset_version": "fintrace-redteam-v1",
+        "evaluation_mode": "dynamic_graybox_generation",
+        "isolation_note": "该模式会在评测时动态生成数据，适合开发自测；严格红蓝隔离请使用 run_frozen_evaluation/eval-frozen。",
         "llm_mode": llm_mode,
         "data_info": data_info,
         "batch_id": batch["batch_id"],
@@ -54,6 +56,42 @@ def run_redteam_evaluation(
         "metrics": metrics.to_dict(),
     }
     write_json(root / f"evaluation_report_{seed}_{n}.json", report)
+    return report
+
+
+def run_frozen_evaluation(
+    frozen_data_dir: str | Path,
+    output_root: str | Path,
+    llm_mode: str = "mock",
+    batch_id: str | None = None,
+) -> dict[str, Any]:
+    dataset_dir = Path(frozen_data_dir)
+    ground_truth = dataset_dir / "ground_truth.json"
+    if not ground_truth.exists():
+        raise FileNotFoundError(f"冻结数据集缺少 ground_truth.json：{ground_truth}")
+    root = Path(output_root)
+    dataset_meta = read_json(dataset_dir / "dataset_manifest.json") if (dataset_dir / "dataset_manifest.json").exists() else {}
+    dataset_name = dataset_meta.get("dataset", dataset_dir.name)
+    run_id = batch_id or f"frozen-{dataset_dir.name}"
+    batch = run_batch([str(dataset_dir)], output_root=root / "runs", batch_id=run_id, llm_mode=llm_mode)
+    metrics = evaluate_batch(batch, ground_truth)
+    report = {
+        "report_name": "FinTrace 冻结红蓝评测报告",
+        "dataset_version": dataset_name,
+        "evaluation_mode": "frozen_dataset",
+        "isolation_note": "评测只读取冻结目录和冻结标注，不在运行时生成红队数据。",
+        "llm_mode": llm_mode,
+        "data_info": {
+            "source_dir": str(dataset_dir),
+            "ground_truth_path": str(ground_truth),
+            "dataset_manifest": dataset_meta,
+        },
+        "batch_id": batch["batch_id"],
+        "work_dir": batch["work_dir"],
+        "metrics": metrics.to_dict(),
+    }
+    safe_name = str(dataset_dir.name).replace(" ", "_")
+    write_json(root / f"frozen_evaluation_report_{safe_name}.json", report)
     return report
 
 
