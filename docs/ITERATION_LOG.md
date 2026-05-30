@@ -244,3 +244,53 @@
 - 产品结论：
   - DeepSeek 适合作为结构化审计底稿增强层，但不能覆盖本地风控边界和企业本体阈值。
   - 当 LLM 更激进时，必须被 blocking/context guardrail 拦住；当 LLM 只是更保守且没有新风险证据时，可以回退到可解释的本地本体计算，避免把可自动柔性放行的案件过度推给人工。
+
+## Round 10：Claude 红方攻击集整改与冻结回归
+
+- 红方问题：
+  - `RA-00023` 审批状态为未审批，系统原先缺少对应规则。
+  - `RA-00024` 金额为 0，系统原先会把空值和 0 都当成低风险金额。
+  - 冷启动场景下微超和巨超被同一套人工复核策略处理，无法区分“可解释微超”和“明显异常巨超”。
+  - 服务采购/咨询类大额支出不宜在冷启动下直接拒绝，应该核验合同、报告和验收材料。
+- 修改内容：
+  - 新增 `R010_APPROVAL_INCOMPLETE`，审批为空、未审批、审批中、待审批、驳回、pending、rejected 等转人工复核。
+  - 新增 `R011_ABNORMAL_AMOUNT`，金额缺失、无法解析、`<=0` 转人工复核，parser 同步记录“金额异常”。
+  - 新增 `fintrace/default_policy_rules.json` 和 `fintrace/policy_config.py`，费用限额、黑名单、审批状态、冷启动阈值、批量采购和服务采购关键词全部可由 JSON 覆盖。
+  - 冷启动策略改为分层：微超 `<=5%` 柔性通过，巨超 `>50%` 拒绝，S/A 客户招待可在客户倍数内柔性通过，批量采购可在配置上限内通过，服务采购转人工核验。
+  - DeepSeek 门控前置本地 REJECT 保护，LLM 不能把本地确定性拒绝降级成人工复核或通过。
+  - 将 Claude 上传数据冻结为 `datasets/red_attack_v1`，并新增 `docs/RED_ATTACK_V1_REMEDIATION_REPORT.md`。
+  - 新增 `scripts/run_regression.ps1`，把单测、内置冻结集和 Claude 红方冻结集串成一次回归。
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval-frozen datasets\fintrace-redteam-v1 --output-root runtime\regression_check\fintrace_redteam`
+  - `python cli.py eval-frozen datasets\red_attack_v1 --output-root runtime\regression_check\red_attack_v1`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+- 复测结论：
+  - 单元测试：18/18 通过。
+  - `datasets\fintrace-redteam-v1` 冻结评测：84 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段抽取准确率 100%，错误案件数 0。
+  - `datasets\red_attack_v1` 冻结评测：28 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段抽取准确率 100%，错误案件数 0。
+  - 回归脚本 `scripts\run_regression.ps1` 通过，能一次性输出两套冻结集指标摘要。
+
+## Round 11：Showcase 压力测试集与视频叙事收口
+
+- 目标变化：
+  - 暂停继续堆新功能，优先把 FinTrace 打磨成可录屏、可解释、可评测的作品集 Showcase。
+  - 演示重点从“上传一张票据问 AI”转为“批量异构材料进入系统后，Agent 如何定位复杂业务风险并给出证据链”。
+- 新增能力：
+  - 新增 `datasets/showcase_fintrace_v1` 冻结演示集，覆盖 3 类强冲突：同日远距离时空冲突、拆单规避、客户拜访事由与附件商品实质不一致。
+  - 新增 `R012_TIME_SPACE_CONFLICT`：同一员工同日远距离城市消费，且批次内没有机票/航班证据时，转人工复核。
+  - 新增 `R013_PURPOSE_ATTACHMENT_MISMATCH`：报销事由为客户拜访/业务沟通，但附件出现游戏机、礼品卡等非业务消费关键词时，转人工复核。
+  - 新增 `docs/ROADMAP.md`，将路线图拆为 v0.1 报销审核 MVP、v0.2 Showcase + 高仿真红队、v0.3 三单匹配/合同/RAG/预算分析。
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval-frozen datasets\showcase_fintrace_v1 --output-root runtime\showcase_eval`
+  - `python cli.py eval-frozen datasets\fintrace-redteam-v1 --output-root runtime\regression_check\fintrace_redteam`
+  - `python cli.py eval-frozen datasets\red_attack_v1 --output-root runtime\regression_check\red_attack_v1`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+- 复测结论：
+  - 单元测试：20/20 通过。
+  - Showcase 冻结集：6 案，决策准确率 100%，字段抽取准确率 100%，错误案件数 0。
+  - 内置冻结红队集：84 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段抽取准确率 100%，错误案件数 0。
+  - Claude 红方冻结集：28 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段抽取准确率 100%，错误案件数 0。
+  - 回归脚本已纳入 Showcase 集，可一次性输出内置红队、Claude 红方和录屏 Showcase 三套冻结集指标。
+  - 代表 case：`SHOW-TS-01` 命中 `R012_TIME_SPACE_CONFLICT`，`SHOW-SPLIT-01` 命中 `R003_SPLIT_INVOICE`，`SHOW-MIS-01` 命中 `R013_PURPOSE_ATTACHMENT_MISMATCH`。

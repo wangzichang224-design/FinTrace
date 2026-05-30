@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from .feedback import find_approval_memory, learned_approval_decision
+from .policy_config import cold_start_rules
 from .schemas import Decision, RiskLevel, RuleClass
 
 
@@ -142,6 +143,10 @@ def deterministic_decision(fields: dict[str, Any], policy_hits: list[dict[str, A
             "guardrail_status": "local_baseline_clear",
         }
     if not allow_flexible and amount > base:
+        cold_decision = cold_start_decision(fields, amount, base, client_mul, vendor_risk, context_quality)
+        if cold_decision:
+            return cold_decision
+    if not allow_flexible and amount > base:
         return {
             "decision": Decision.MANUAL_REVIEW.value,
             "risk_level": RiskLevel.MEDIUM.value,
@@ -194,6 +199,124 @@ def deterministic_decision(fields: dict[str, Any], policy_hits: list[dict[str, A
     }
 
 
+def cold_start_decision(
+    fields: dict[str, Any],
+    amount: float,
+    base: float,
+    client_mul: float,
+    vendor_risk: str,
+    context_quality: dict[str, Any],
+) -> dict[str, Any]:
+    rules = cold_start_rules()
+    micro_ratio = float(rules.get("micro_overshoot_ratio", 0.05))
+    reject_ratio = float(rules.get("hard_reject_overshoot_ratio", 0.5))
+    bulk_multiplier = float(rules.get("bulk_procurement_limit_multiplier", 3.0))
+    service_multiplier = float(rules.get("service_procurement_manual_review_multiplier", 3.0))
+    overshoot_ratio = (amount - base) / max(base, 1.0)
+    flex_threshold = round(base * max(client_mul, 1.0), 2)
+
+    if is_bulk_procurement_case(fields) and vendor_risk != "high" and amount <= base * bulk_multiplier:
+        return {
+            "decision": Decision.APPROVE.value,
+            "risk_level": RiskLevel.LOW.value,
+            "confidence": 0.82,
+            "reason": "冷启动下识别为受控批量采购场景，金额在批量采购配置上限内。",
+            "recommended_action": "自动通过并保留批量采购识别依据，后续可抽样复核供应商和采购清单。",
+            "evidence_refs": ["bulk_procurement_policy", "category_benchmark"],
+            "computed_threshold": round(base * bulk_multiplier, 2),
+            "reasoning_summary": "办公类批量采购不同于单笔日常办公费用，命中受控关键词且未发现高危供应商。",
+            "manual_review_reason": "",
+            "guardrail_status": "cold_start_bulk_procurement_approved",
+        }
+
+    if client_mul > 1.0 and amount <= flex_threshold and vendor_risk in {"low", "medium"}:
+        return {
+            "decision": Decision.APPROVE_WITH_FLEX.value,
+            "risk_level": RiskLevel.MEDIUM.value,
+            "confidence": 0.82,
+            "reason": "冷启动下员工信用缺失，但客户等级本体支持该金额柔性通过。",
+            "recommended_action": "柔性通过，保留客户等级、金额阈值和冷启动字段。",
+            "evidence_refs": ["client_priority", "category_benchmark", "context_quality"],
+            "computed_threshold": flex_threshold,
+            "reasoning_summary": "有客户等级本体支撑时，不因员工信用冷启动整体关停柔性策略。",
+            "manual_review_reason": "",
+            "guardrail_status": "cold_start_client_flex_approved",
+        }
+
+    if overshoot_ratio <= micro_ratio and vendor_risk in {"low", "medium"}:
+        return {
+            "decision": Decision.APPROVE_WITH_FLEX.value,
+            "risk_level": RiskLevel.MEDIUM.value,
+            "confidence": 0.78,
+            "reason": "冷启动下金额仅微量超标，未发现其他风险信号。",
+            "recommended_action": "柔性通过并记录微量超标比例，后续补充员工信用后复核策略。",
+            "evidence_refs": ["category_benchmark", "context_quality"],
+            "computed_threshold": round(base * (1 + micro_ratio), 2),
+            "reasoning_summary": "微量超标忽略带用于降低冷启动误杀，不覆盖阻断控制和非金额风险信号。",
+            "manual_review_reason": "",
+            "guardrail_status": "cold_start_micro_overshoot_flex",
+        }
+
+    if is_service_procurement_case(fields) and vendor_risk != "high" and amount <= base * service_multiplier:
+        return {
+            "decision": Decision.MANUAL_REVIEW.value,
+            "risk_level": RiskLevel.HIGH.value,
+            "confidence": 0.76,
+            "reason": "冷启动下识别为服务采购/咨询类大额支出，需人工核验合同、报告和验收材料。",
+            "recommended_action": "转人工复核服务采购合同、交付物、验收记录和供应商背景。",
+            "evidence_refs": ["service_procurement_policy", "category_benchmark", "context_quality"],
+            "computed_threshold": round(base * service_multiplier, 2),
+            "reasoning_summary": "服务采购金额显著高于默认基准，但业务实质依赖合同和验收材料，不宜在冷启动下直接拒绝。",
+            "manual_review_reason": "服务采购/咨询类大额支出需要人工确认业务实质。",
+            "guardrail_status": "cold_start_service_procurement_manual_review",
+        }
+
+    if overshoot_ratio > reject_ratio:
+        return {
+            "decision": Decision.REJECT.value,
+            "risk_level": RiskLevel.HIGH.value,
+            "confidence": 0.86,
+            "reason": "冷启动下金额显著超出静态标准，缺少足够本体证据支撑放行。",
+            "recommended_action": "拒绝或要求补充高等级业务审批、合同、客户等级或专项预算证明。",
+            "evidence_refs": ["category_benchmark", "context_quality"],
+            "computed_threshold": round(base * (1 + reject_ratio), 2),
+            "reasoning_summary": "冷启动不是一律转人工；巨幅超标在无明确特批依据时应拒绝。",
+            "manual_review_reason": "",
+            "guardrail_status": "local_cold_start_overshoot_reject",
+        }
+
+    return {
+        "decision": Decision.MANUAL_REVIEW.value,
+        "risk_level": RiskLevel.MEDIUM.value,
+        "confidence": 0.7,
+        "reason": "企业本体处于冷启动或缺少关键上下文，当前超标幅度需要人工复核。",
+        "recommended_action": "补充员工信用、供应商风险、费用基准或业务特批后再判断。",
+        "evidence_refs": ["context_quality", "category_benchmark"],
+        "computed_threshold": flex_threshold,
+        "reasoning_summary": "冷启动按偏离度分级：微超可柔性、巨超可拒绝，中间区间转人工。",
+        "manual_review_reason": "缺少支持自动柔性通过的关键上下文。",
+        "guardrail_status": "context_cold_start_manual_review",
+    }
+
+
+def is_bulk_procurement_case(fields: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(fields.get(key) or "")
+        for key in ("expense_type", "description", "vendor", "department", "project_code")
+    )
+    keywords = cold_start_rules().get("bulk_procurement_keywords", [])
+    return any(str(keyword) and str(keyword) in text for keyword in keywords)
+
+
+def is_service_procurement_case(fields: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(fields.get(key) or "")
+        for key in ("expense_type", "description", "vendor", "department", "project_code")
+    )
+    keywords = cold_start_rules().get("service_procurement_keywords", [])
+    return any(str(keyword) and str(keyword) in text for keyword in keywords)
+
+
 def apply_llm_guardrails(
     llm_decision: dict[str, Any],
     baseline: dict[str, Any],
@@ -229,6 +352,17 @@ def apply_llm_guardrails(
         guarded = dict(baseline)
         guarded["guardrail_status"] = "llm_missing_evidence_fallback"
         return guarded, {"status": "fallback", "reason": "LLM 未提供证据引用", "action": "use_local_baseline"}
+
+    if baseline.get("decision") == Decision.REJECT.value and llm_decision.get("decision") != baseline.get("decision"):
+        guarded = dict(baseline)
+        guarded["guardrail_status"] = "llm_blocked_by_local_reject_guardrail"
+        guarded["llm_review_reason"] = llm_decision.get("manual_review_reason") or llm_decision.get("reason", "")
+        return guarded, {
+            "status": "fallback",
+            "reason": "DeepSeek cannot downgrade a deterministic local rejection without stronger evidence.",
+            "action": "use_local_reject_baseline",
+            "llm_decision": llm_decision.get("decision"),
+        }
 
     context_quality = context.get("context_quality", {})
     if llm_decision.get("decision") == Decision.APPROVE_WITH_FLEX.value and not context_quality.get("allow_flexible_approval", True):

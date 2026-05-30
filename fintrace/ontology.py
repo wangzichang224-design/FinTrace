@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from .policies import BLACKLISTED_VENDOR_TOKENS, expense_limit
+from .policies import expense_limit
+from .policy_config import blacklisted_vendor_tokens
 
 
 STRATEGIC_CLIENTS = {
@@ -133,7 +134,7 @@ def get_vendor_risk(vendor: Any) -> dict[str, Any]:
     text = str(vendor or "").lower()
     if not text:
         return {"risk": "unknown", "score": 60, "reason": "缺少供应商名称", "source": "mock_vendor_registry_v1", "source_type": "missing"}
-    high_risk_tokens = {token.lower() for token in BLACKLISTED_VENDOR_TOKENS} | {"high risk", "shell company"}
+    high_risk_tokens = {token.lower() for token in blacklisted_vendor_tokens()} | {"high risk", "shell company"}
     if any(token in text for token in high_risk_tokens):
         return {"risk": "high", "score": 92, "reason": "供应商注册/黑名单关键词命中", "source": "mock_vendor_registry_v1", "source_type": "mock_vendor_registry"}
     if any(token in text for token in ("咨询", "consulting", "服务", "科技服务")):

@@ -10,7 +10,7 @@ from uuid import uuid4
 from fintrace.evaluator import evaluate_batch
 from fintrace.evaluator import run_frozen_evaluation
 from fintrace.feedback import record_manual_approval
-from fintrace.ingestion import match_attachments
+from fintrace.ingestion import assemble_cases, match_attachments, scan_manifest
 from fintrace.insights import case_failure_reason, optimization_insights, review_queue_rows
 from fintrace.ontology import build_context
 from fintrace.parser import parse_case_fields, safe_float
@@ -61,6 +61,7 @@ class FinTraceCoreTest(unittest.TestCase):
             "amount": 800.0,
             "invoice_no": "INV-001",
             "has_original_invoice": False,
+            "approval_status": "已审批",
             "vendor": "上海虹桥睿选酒店",
         }
         hits, route = run_hard_policies(fields)
@@ -79,6 +80,7 @@ class FinTraceCoreTest(unittest.TestCase):
             "amount": 1300.0,
             "invoice_no": "INV-002",
             "has_original_invoice": True,
+            "approval_status": "已审批",
             "vendor": "上海星河商务餐饮有限公司",
             "expense_date": "2026-05-10",
             "split_group_count": 3,
@@ -99,6 +101,7 @@ class FinTraceCoreTest(unittest.TestCase):
             "amount": 3600.0,
             "invoice_no": "INV-003",
             "has_original_invoice": True,
+            "approval_status": "已审批",
             "vendor": "上海虹桥睿选酒店",
             "expense_date": "2026-05-02",
             "city": "三亚",
@@ -109,6 +112,139 @@ class FinTraceCoreTest(unittest.TestCase):
         decision, _ = make_decision(fields, hits, context, llm_mode="mock")
         self.assertEqual(decision["decision"], Decision.MANUAL_REVIEW.value)
         self.assertEqual(decision["guardrail_status"], "context_cold_start_manual_review")
+
+    def test_approval_incomplete_and_abnormal_amount_are_risk_signals(self) -> None:
+        pending_fields = {
+            "reimbursement_id": "T-APPROVAL",
+            "employee_id": "E001",
+            "expense_type": "交通",
+            "amount": 350.0,
+            "invoice_no": "INV-APPROVAL",
+            "has_original_invoice": True,
+            "approval_status": "未审批",
+            "vendor": "上海锦江出租汽车服务有限公司",
+        }
+        hits, route = run_hard_policies(pending_fields)
+        self.assertEqual(route, "need_context")
+        self.assertTrue(any(hit["rule_id"] == "R010_APPROVAL_INCOMPLETE" for hit in hits))
+        decision, _ = make_decision(pending_fields, hits, build_context(pending_fields), llm_mode="mock")
+        self.assertEqual(decision["decision"], Decision.MANUAL_REVIEW.value)
+
+        zero_fields = {**pending_fields, "reimbursement_id": "T-ZERO", "amount": 0.0, "approval_status": "已审批"}
+        hits, _ = run_hard_policies(zero_fields)
+        self.assertTrue(any(hit["rule_id"] == "R011_ABNORMAL_AMOUNT" for hit in hits))
+
+    def test_parser_records_zero_amount_anomaly(self) -> None:
+        artifacts = [
+            {
+                "artifact_id": "A1-ZERO",
+                "path": "erp.csv",
+                "artifact_type": "erp_row",
+                "records": [
+                    {
+                        "reimbursement_id": "T-ZERO-PARSE",
+                        "employee_id": "E001",
+                        "expense_type": "办公",
+                        "amount": 0,
+                        "invoice_no": "INV-ZERO",
+                        "has_original_invoice": True,
+                        "approval_status": "已审批",
+                    }
+                ],
+                "metadata": {"row_number": 1},
+            }
+        ]
+        fields, _, errors = parse_case_fields(artifacts)
+        self.assertTrue(fields["amount_anomaly_detected"])
+        self.assertTrue(any(error["category"] == "金额异常" for error in errors))
+
+    def test_cold_start_overshoot_tiers_and_business_exceptions(self) -> None:
+        base_fields = {
+            "employee_id": "E111",
+            "expense_type": "住宿",
+            "invoice_no": "INV-CS",
+            "has_original_invoice": True,
+            "approval_status": "已审批",
+            "vendor": "上海虹桥精选酒店",
+            "expense_date": "2026-05-18",
+            "client_id": "C101",
+        }
+
+        micro = {**base_fields, "reimbursement_id": "T-MICRO", "amount": 3100.0}
+        hits, _ = run_hard_policies(micro)
+        decision, _ = make_decision(micro, hits, build_context(micro), llm_mode="mock")
+        self.assertEqual(decision["decision"], Decision.APPROVE_WITH_FLEX.value)
+        self.assertEqual(decision["guardrail_status"], "cold_start_micro_overshoot_flex")
+
+        extreme = {**base_fields, "reimbursement_id": "T-EXTREME", "amount": 25000.0, "city": "三亚"}
+        hits, _ = run_hard_policies(extreme)
+        decision, _ = make_decision(extreme, hits, build_context(extreme), llm_mode="mock")
+        self.assertEqual(decision["decision"], Decision.REJECT.value)
+        self.assertEqual(decision["guardrail_status"], "local_cold_start_overshoot_reject")
+
+        strategic = {
+            **base_fields,
+            "reimbursement_id": "T-STRATEGIC",
+            "expense_type": "客户招待",
+            "amount": 5800.0,
+            "client_id": "C001",
+            "vendor": "北京国贸嘉里商务酒店",
+        }
+        hits, _ = run_hard_policies(strategic)
+        decision, _ = make_decision(strategic, hits, build_context(strategic), llm_mode="mock")
+        self.assertEqual(decision["decision"], Decision.APPROVE_WITH_FLEX.value)
+        self.assertEqual(decision["guardrail_status"], "cold_start_client_flex_approved")
+
+        bulk = {
+            **base_fields,
+            "reimbursement_id": "T-BULK",
+            "expense_type": "办公",
+            "amount": 4500.0,
+            "vendor": "上海办公用品有限公司",
+            "description": "部门季度办公用品批量采购",
+        }
+        hits, _ = run_hard_policies(bulk)
+        decision, _ = make_decision(bulk, hits, build_context(bulk), llm_mode="mock")
+        self.assertEqual(decision["decision"], Decision.APPROVE.value)
+        self.assertEqual(decision["guardrail_status"], "cold_start_bulk_procurement_approved")
+
+        service = {
+            **base_fields,
+            "reimbursement_id": "T-SERVICE",
+            "expense_type": "咨询",
+            "amount": 8000.0,
+            "vendor": "上海智研企业管理咨询有限公司",
+            "description": "市场调研报告采购",
+        }
+        hits, _ = run_hard_policies(service)
+        decision, _ = make_decision(service, hits, build_context(service), llm_mode="mock")
+        self.assertEqual(decision["decision"], Decision.MANUAL_REVIEW.value)
+        self.assertEqual(decision["guardrail_status"], "cold_start_service_procurement_manual_review")
+
+    def test_llm_cannot_downgrade_local_reject_guardrail(self) -> None:
+        baseline = {
+            "decision": Decision.REJECT.value,
+            "risk_level": "HIGH",
+            "confidence": 0.86,
+            "evidence_refs": ["category_benchmark"],
+            "guardrail_status": "local_cold_start_overshoot_reject",
+        }
+        llm_decision = {
+            "decision": Decision.MANUAL_REVIEW.value,
+            "risk_level": "MEDIUM",
+            "confidence": 0.9,
+            "evidence_refs": ["category_benchmark"],
+            "reason": "DeepSeek requests review instead of reject.",
+        }
+        guarded, guardrail = apply_llm_guardrails(
+            llm_decision,
+            baseline,
+            [{"rule_id": "R004_ABSOLUTE_LIMIT", "rule_class": "contextual_risk_signal", "decision_hint": Decision.MANUAL_REVIEW.value}],
+            {"context_quality": {"allow_flexible_approval": False}},
+        )
+        self.assertEqual(guarded["decision"], Decision.REJECT.value)
+        self.assertEqual(guarded["guardrail_status"], "llm_blocked_by_local_reject_guardrail")
+        self.assertEqual(guardrail["action"], "use_local_reject_baseline")
 
     def test_llm_guardrail_routes_low_confidence_to_manual_review(self) -> None:
         baseline = {
@@ -220,6 +356,7 @@ class FinTraceCoreTest(unittest.TestCase):
                         "amount": 640,
                         "invoice_no": "PI-001",
                         "has_original_invoice": True,
+                        "approval_status": "已审批",
                         "vendor": "上海锦江出租汽车服务有限公司",
                     }
                 ],
@@ -241,6 +378,60 @@ class FinTraceCoreTest(unittest.TestCase):
         self.assertEqual(route, "need_context")
         self.assertTrue(any(hit["rule_id"] == "R009_CHAT_PROMPT_INJECTION" and hit["rule_class"] == "contextual_risk_signal" for hit in hits))
 
+    def test_time_space_conflict_becomes_contextual_risk_signal(self) -> None:
+        root = test_root("time_space")
+        erp_path = root / "erp_showcase.csv"
+        erp_path.write_text(
+            "reimbursement_id,employee_id,expense_type,amount,invoice_no,has_original_invoice,approval_status,expense_date,expense_time,city,vendor\n"
+            "TS-001,E777,餐饮,286,TS-INV-001,true,已审批,2026-05-20,09:15,上海,上海陆家嘴商务餐厅\n"
+            "TS-002,E777,交通,168,TS-INV-002,true,已审批,2026-05-20,14:10,乌鲁木齐,乌鲁木齐天山出租车\n",
+            encoding="utf-8",
+        )
+        manifest = [item.to_dict() for item in scan_manifest([erp_path])]
+        cases = assemble_cases("showcase-test", manifest)
+
+        self.assertTrue(cases[0].batch_features["time_space_conflict_detected"])
+        fields, _, _ = parse_case_fields([artifact.to_dict() for artifact in cases[0].raw_artifacts], cases[0].batch_features)
+        hits, route = run_hard_policies(fields)
+
+        self.assertEqual(route, "need_context")
+        self.assertIn("R012_TIME_SPACE_CONFLICT", {hit["rule_id"] for hit in hits})
+
+    def test_purpose_attachment_mismatch_becomes_contextual_risk_signal(self) -> None:
+        artifacts = [
+            {
+                "artifact_id": "ERP-1",
+                "path": "erp.csv",
+                "records": [
+                    {
+                        "reimbursement_id": "MIS-001",
+                        "employee_id": "E888",
+                        "expense_type": "客户招待",
+                        "amount": 2999,
+                        "invoice_no": "MIS-INV-001",
+                        "has_original_invoice": True,
+                        "approval_status": "已审批",
+                        "description": "拜访客户C001技术交流",
+                    }
+                ],
+                "metadata": {"row_number": 1},
+            },
+            {
+                "artifact_id": "TXT-1",
+                "path": "MIS-001_发票OCR.txt",
+                "text": "报销单号：MIS-001\n商品名称：任天堂 Switch OLED 主机、礼品卡\n价税合计：2999.00",
+                "metadata": {"extraction_method": "text_file"},
+            },
+        ]
+        fields, provenance, errors = parse_case_fields(artifacts)
+        hits, route = run_hard_policies(fields)
+
+        self.assertFalse(errors)
+        self.assertTrue(fields["purpose_mismatch_detected"])
+        self.assertIn("purpose_mismatch_detected", provenance)
+        self.assertEqual(route, "need_context")
+        self.assertIn("R013_PURPOSE_ATTACHMENT_MISMATCH", {hit["rule_id"] for hit in hits})
+
     def test_human_feedback_memory_approves_same_boundary_case_next_time(self) -> None:
         root = test_root("feedback_memory")
         memory_path = root / "approval_memory.json"
@@ -251,6 +442,7 @@ class FinTraceCoreTest(unittest.TestCase):
             "amount": 3300.0,
             "invoice_no": "FB-001",
             "has_original_invoice": True,
+            "approval_status": "已审批",
             "vendor": "上海虹桥精选酒店",
             "expense_date": "2026-05-18",
             "city": "上海",

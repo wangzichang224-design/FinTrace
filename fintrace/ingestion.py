@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import zipfile
 from dataclasses import asdict, dataclass
@@ -18,6 +19,18 @@ TEXT_EXTENSIONS = {".txt", ".md", ".json"}
 PDF_EXTENSIONS = {".pdf"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 SUPPORTED_EXTENSIONS = ERP_EXTENSIONS | TEXT_EXTENSIONS | PDF_EXTENSIONS | IMAGE_EXTENSIONS | {".zip"}
+
+CITY_COORDINATES = {
+    "上海": (31.2304, 121.4737),
+    "北京": (39.9042, 116.4074),
+    "深圳": (22.5431, 114.0579),
+    "杭州": (30.2741, 120.1551),
+    "广州": (23.1291, 113.2644),
+    "成都": (30.5728, 104.0668),
+    "三亚": (18.2528, 109.5119),
+    "乌鲁木齐": (43.8256, 87.6168),
+    "新疆": (43.8256, 87.6168),
+}
 
 
 @dataclass
@@ -320,6 +333,7 @@ def enrich_batch_features(cases: list[CasePackage]) -> None:
     invoice_groups: dict[str, list[CasePackage]] = {}
     split_groups: dict[str, list[CasePackage]] = {}
     similar_invoice_groups: dict[str, list[CasePackage]] = {}
+    employee_day_groups: dict[str, list[CasePackage]] = {}
 
     for case in cases:
         row = first_record(case)
@@ -345,6 +359,14 @@ def enrich_batch_features(cases: list[CasePackage]) -> None:
         )
         if similar_key.strip("|"):
             similar_invoice_groups.setdefault(similar_key, []).append(case)
+        employee_day_key = "|".join(
+            [
+                str(row.get("employee_id") or "").strip().lower(),
+                str(row.get("expense_date") or "")[:10],
+            ]
+        )
+        if employee_day_key.strip("|"):
+            employee_day_groups.setdefault(employee_day_key, []).append(case)
 
     for group in invoice_groups.values():
         for case in group:
@@ -356,6 +378,8 @@ def enrich_batch_features(cases: list[CasePackage]) -> None:
             case.batch_features["split_group_total"] = round(total, 2)
     for group in similar_invoice_groups.values():
         mark_similar_invoice_cases(group)
+    for group in employee_day_groups.values():
+        mark_time_space_conflict_cases(group)
 
 
 def mark_similar_invoice_cases(group: list[CasePackage]) -> None:
@@ -377,6 +401,72 @@ def invoice_distance(left: str, right: str) -> int:
     if len(left) != len(right):
         return max(len(left), len(right))
     return sum(1 for a, b in zip(left, right) if a != b)
+
+
+def mark_time_space_conflict_cases(group: list[CasePackage]) -> None:
+    if len(group) < 2 or group_has_flight_evidence(group):
+        return
+    for idx, case in enumerate(group):
+        row = first_record(case)
+        city = str(row.get("city") or "").strip()
+        hour = parse_expense_hour(row.get("expense_time"))
+        if city not in CITY_COORDINATES or hour is None:
+            continue
+        conflicts: list[str] = []
+        details: list[str] = []
+        for other_idx, other in enumerate(group):
+            if idx == other_idx:
+                continue
+            other_row = first_record(other)
+            other_city = str(other_row.get("city") or "").strip()
+            other_hour = parse_expense_hour(other_row.get("expense_time"))
+            if other_city not in CITY_COORDINATES or other_hour is None:
+                continue
+            distance_km = city_distance_km(city, other_city)
+            hour_gap = abs(hour - other_hour)
+            if distance_km >= 1200 and hour_gap <= 6:
+                conflicts.append(other.case_id)
+                details.append(f"{city} {hour:.2f}h vs {other_city} {other_hour:.2f}h, distance≈{round(distance_km)}km")
+        if conflicts:
+            case.batch_features["time_space_conflict_detected"] = True
+            case.batch_features["time_space_conflict_peers"] = conflicts
+            case.batch_features["time_space_conflict_detail"] = "; ".join(details)
+            case.batch_features["time_space_conflict_no_flight_evidence"] = True
+
+
+def group_has_flight_evidence(group: list[CasePackage]) -> bool:
+    flight_tokens = ("机票", "航班", "航空", "飞机", "flight", "air")
+    for case in group:
+        row = first_record(case)
+        text = " ".join(str(row.get(key) or "") for key in ("expense_type", "description", "vendor"))
+        if any(token.lower() in text.lower() for token in flight_tokens):
+            return True
+    return False
+
+
+def parse_expense_hour(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    match = re.search(r"(\d{1,2})[:：](\d{1,2})", str(value))
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour + minute / 60
+
+
+def city_distance_km(left: str, right: str) -> float:
+    lat1, lon1 = CITY_COORDINATES[left]
+    lat2, lon2 = CITY_COORDINATES[right]
+    radius = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lon2 - lon1)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def first_record(case: CasePackage) -> dict[str, Any]:

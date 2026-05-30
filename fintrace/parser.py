@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .policy_config import showcase_risk_keywords
 from .schemas import FieldSource
 
 
@@ -16,6 +17,7 @@ FIELD_ALIASES = {
     "approver": ["approver", "审批人", "直属审批人"],
     "approval_status": ["approval_status", "审批状态"],
     "expense_date": ["expense_date", "费用日期", "发生日期", "消费日期"],
+    "expense_time": ["expense_time", "费用时间", "发生时间", "消费时间"],
     "submitted_at": ["submitted_at", "提交日期", "报销日期"],
     "expense_type": ["expense_type", "费用类型", "报销类型"],
     "amount": ["amount", "金额", "价税合计", "报销金额"],
@@ -84,6 +86,22 @@ def parse_case_fields(
                     extraction_method="chat_guardrail_regex",
                 ).to_dict()
             )
+        mismatch = detect_purpose_mismatch(combined_text, fields)
+        if mismatch:
+            fields["purpose_mismatch_detected"] = True
+            fields["purpose_mismatch_terms"] = mismatch
+            artifact = next((a for a in raw_artifacts if a.get("text")), raw_artifacts[0])
+            provenance.setdefault("purpose_mismatch_detected", []).append(
+                FieldSource(
+                    field_name="purpose_mismatch_detected",
+                    value=True,
+                    artifact_id=artifact["artifact_id"],
+                    source_path=artifact["path"],
+                    locator=f"text_span={','.join(mismatch)}",
+                    confidence=0.84,
+                    extraction_method="purpose_item_consistency_regex",
+                ).to_dict()
+            )
         extracted = parse_text_fields(combined_text)
         if "amount" in extracted and "amount" in fields:
             text_amount = safe_float(extracted["amount"])
@@ -121,6 +139,15 @@ def parse_case_fields(
     for field in REQUIRED_FIELDS:
         if field not in fields or fields[field] in (None, ""):
             errors.append({"category": "字段缺失", "field": field, "message": f"缺少关键字段：{field}"})
+
+    if "amount" not in fields or fields.get("amount") in (None, ""):
+        fields["amount_anomaly_detected"] = True
+        errors.append({"category": "金额异常", "field": "amount", "message": "金额缺失，需人工确认。"})
+    else:
+        amount_value = safe_float(fields.get("amount"))
+        if amount_value <= 0:
+            fields["amount_anomaly_detected"] = True
+            errors.append({"category": "金额异常", "field": "amount", "message": f"金额为 {amount_value}，需人工确认。"})
 
     return fields, provenance, errors
 
@@ -188,6 +215,7 @@ def parse_text_fields(text: str) -> dict[str, Any]:
         "client_id": r"(?:客户ID|客户编号|client_id)\s*[:：]\s*([A-Za-z0-9_-]+)",
         "client_name": r"(?:客户名称|客户|client_name)\s*[:：]\s*([\u4e00-\u9fffA-Za-z0-9()（） -]+)",
         "expense_date": r"(?:费用日期|发生日期|消费日期|expense_date)\s*[:：]\s*([0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2})",
+        "expense_time": r"(?:费用时间|发生时间|消费时间|expense_time)\s*[:：]\s*([0-9]{1,2}[:：][0-9]{1,2})",
         "has_original_invoice": r"(?:是否有原件|发票原件|原件状态|has_original_invoice)\s*[:：]\s*(true|false|yes|no|是|否|有|无|原件齐全)",
     }
     for key, pattern in fallback_patterns.items():
@@ -238,6 +266,25 @@ def find_prompt_injection_locator(text: str) -> str:
         if pos >= 0:
             return f"text_span={pos}:{pos + len(phrase)}"
     return "text_span=prompt_injection_phrase"
+
+
+def detect_purpose_mismatch(text: str, fields: dict[str, Any]) -> list[str]:
+    rules = showcase_risk_keywords()
+    purpose_keywords = rules.get("business_purpose_keywords", [])
+    suspicious_keywords = rules.get("non_business_item_keywords", [])
+    purpose_text = " ".join(
+        [
+            str(fields.get("description") or ""),
+            str(fields.get("expense_type") or ""),
+            text,
+        ]
+    ).lower()
+    text_lower = text.lower()
+    has_business_purpose = any(keyword.lower() in purpose_text for keyword in purpose_keywords)
+    suspicious_hits = [keyword for keyword in suspicious_keywords if keyword.lower() in text_lower]
+    if has_business_purpose and suspicious_hits:
+        return suspicious_hits
+    return []
 
 
 def find_text_locator(text: str, value: str) -> str:

@@ -15,6 +15,8 @@ FinTrace 不试图一开始替代 ERP 或财务终审。它先解决批量报销
 - [企业数据对接契约](docs/ENTERPRISE_INTEGRATION.md)：定义真实 ERP、HR、CRM、供应商和费用政策数据源的最小字段、维护责任和冷启动兜底。
 - [企业 ERP 费控对标与智能改进](docs/ERP_EXPENSE_BENCHMARK.md)：说明主流 ERP/费控审核方式，并记录 FinTrace 的人工通过记忆设计。
 - [红蓝对抗隔离说明](docs/RED_BLUE_ISOLATION.md)：区分动态灰盒自测和冻结数据集评测，说明红队生成器与蓝队代码的隔离边界。
+- [Claude 红方整改报告](docs/RED_ATTACK_V1_REMEDIATION_REPORT.md)：记录独立红方数据暴露的问题、修复策略和冻结回归结果。
+- [路线图](docs/ROADMAP.md)：说明从费控审核 MVP、Showcase 打样到通用财务助手的三阶段规划。
 - [架构决策记录](docs/ARCHITECTURE_DECISIONS.md)：解释为什么使用 LangGraph、DeepSeek、本地稳定模型和 Streamlit。
 - [迭代记录](docs/ITERATION_LOG.md)：记录测试、失败归因和复测过程。
 
@@ -65,6 +67,7 @@ DeepSeek 输出必须经过 JSON 解析、证据引用、置信度、本地基�
 python -m unittest discover -s tests -v
 python cli.py eval --output-root runtime\eval_review_fix --n 500 --seed 42
 python cli.py eval-frozen datasets\fintrace-redteam-v1 --output-root runtime\eval_frozen
+python cli.py eval-frozen datasets\showcase_fintrace_v1 --output-root runtime\showcase_eval
 ```
 
 目标指标：

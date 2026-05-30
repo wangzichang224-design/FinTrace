@@ -3,31 +3,25 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from .policy_config import (
+    approval_complete_statuses,
+    approval_incomplete_statuses,
+    blacklisted_vendor_tokens,
+    expense_limits,
+    normalize_status,
+)
 from .schemas import Decision, PolicyHit, RiskLevel, RuleClass
 
 
-ABSOLUTE_LIMITS = {
-    "hotel": 3000.0,
-    "住宿": 3000.0,
-    "meal": 2000.0,
-    "餐饮": 2000.0,
-    "transport": 8000.0,
-    "交通": 8000.0,
-    "client_entertainment": 5000.0,
-    "客户招待": 5000.0,
-    "office": 1500.0,
-    "办公": 1500.0,
-}
-
-BLACKLISTED_VENDOR_TOKENS = {"黑名单", "phantom", "空壳", "高危供应商", "异常咨询"}
+ABSOLUTE_LIMITS = expense_limits()
+BLACKLISTED_VENDOR_TOKENS = blacklisted_vendor_tokens()
 
 
 def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
     """Return blocking controls and contextual risk signals.
 
-    The function name is kept for compatibility with CaseGraph, but the output is
-    intentionally split by rule_class. Only blocking_control rules can directly
-    reject or escalate; contextual_risk_signal rules continue to reasoning.
+    Only blocking_control rules can directly reject or escalate. Contextual risk
+    signals continue to the local decision model / LLM guardrail layer.
     """
     hits: list[PolicyHit] = []
 
@@ -42,7 +36,7 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
                 input_fields={"has_original_invoice": fields.get("has_original_invoice")},
                 threshold=True,
                 calculation="has_original_invoice == False",
-                reason="缺少发票原件，属于无歧义、可离线判定的阻断控制。",
+                reason="缺少发票原件，属于可离线判定的阻断控制。",
             )
         )
 
@@ -81,7 +75,38 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             )
         )
 
-    amount = float(fields.get("amount") or 0)
+    approval_status = normalize_status(fields.get("approval_status"))
+    if approval_status not in approval_complete_statuses() or approval_status in approval_incomplete_statuses():
+        hits.append(
+            PolicyHit(
+                rule_id="R010_APPROVAL_INCOMPLETE",
+                rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
+                severity=RiskLevel.HIGH.value,
+                decision_hint=Decision.MANUAL_REVIEW.value,
+                input_fields={"approval_status": fields.get("approval_status")},
+                threshold="approval_status in approved/complete statuses",
+                calculation=f"approval_status={fields.get('approval_status')!r} not approved",
+                reason="ERP 审批状态未完成或缺失，需确认业务审批链路完整后才能进入付款。",
+            )
+        )
+
+    amount = parse_policy_amount(fields.get("amount"))
+    if amount is None or amount <= 0:
+        hits.append(
+            PolicyHit(
+                rule_id="R011_ABNORMAL_AMOUNT",
+                rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
+                severity=RiskLevel.HIGH.value,
+                decision_hint=Decision.MANUAL_REVIEW.value,
+                input_fields={"amount": fields.get("amount")},
+                threshold="amount > 0",
+                calculation=f"amount={fields.get('amount')!r}",
+                reason="金额缺失、无法解析、为 0 或为负数，需人工确认是否为空单、测试单或录入错误。",
+            )
+        )
+        amount = 0.0
     if amount > limit:
         hits.append(
             PolicyHit(
@@ -98,7 +123,7 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
         )
 
     vendor = str(fields.get("vendor") or "").lower()
-    if any(token.lower() in vendor for token in BLACKLISTED_VENDOR_TOKENS):
+    if any(token.lower() in vendor for token in blacklisted_vendor_tokens()):
         hits.append(
             PolicyHit(
                 rule_id="R005_VENDOR_BLACKLIST",
@@ -181,15 +206,64 @@ def run_hard_policies(fields: dict[str, Any]) -> tuple[list[dict[str, Any]], str
             )
         )
 
+    if fields.get("time_space_conflict_detected"):
+        hits.append(
+            PolicyHit(
+                rule_id="R012_TIME_SPACE_CONFLICT",
+                rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
+                severity=RiskLevel.HIGH.value,
+                decision_hint=Decision.MANUAL_REVIEW.value,
+                input_fields={
+                    "city": fields.get("city"),
+                    "expense_date": fields.get("expense_date"),
+                    "expense_time": fields.get("expense_time"),
+                    "time_space_conflict_peers": fields.get("time_space_conflict_peers", []),
+                    "time_space_conflict_detail": fields.get("time_space_conflict_detail", ""),
+                },
+                threshold="same employee/date, distance >= 1200km, time gap <= 6h, no flight evidence",
+                calculation=str(fields.get("time_space_conflict_detail", "")),
+                reason="同一员工同日出现远距离城市消费，且批次内未发现机票/航班证据，需人工核验行程真实性。",
+            )
+        )
+
+    if fields.get("purpose_mismatch_detected"):
+        hits.append(
+            PolicyHit(
+                rule_id="R013_PURPOSE_ATTACHMENT_MISMATCH",
+                rule_version="2026.05",
+                rule_class=RuleClass.CONTEXTUAL_RISK_SIGNAL.value,
+                severity=RiskLevel.HIGH.value,
+                decision_hint=Decision.MANUAL_REVIEW.value,
+                input_fields={
+                    "description": fields.get("description"),
+                    "expense_type": fields.get("expense_type"),
+                    "purpose_mismatch_terms": fields.get("purpose_mismatch_terms", []),
+                },
+                threshold="business purpose text should match attachment item substance",
+                calculation=f"purpose_mismatch_terms={fields.get('purpose_mismatch_terms', [])}",
+                reason="报销事由为客户拜访/业务沟通，但附件出现游戏机、礼品卡等非业务消费关键词，需人工核验业务实质。",
+            )
+        )
+
     route = route_from_policy_hits(hits)
     return [h.to_dict() for h in hits], route
 
 
 def expense_limit(expense_type: str) -> float:
-    for key, value in ABSOLUTE_LIMITS.items():
+    for key, value in expense_limits().items():
         if key.lower() in expense_type:
             return value
     return 3000.0
+
+
+def parse_policy_amount(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def route_from_policy_hits(hits: list[PolicyHit]) -> str:

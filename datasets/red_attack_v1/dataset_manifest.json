@@ -1,0 +1,9 @@
+{
+  "dataset": "red_attack_v1",
+  "source_dir": "runtime\\uploads\\upload_a178eb68",
+  "case_count": 28,
+  "erp_path": "erp_费控报销导出.csv",
+  "ground_truth_path": "ground_truth.json",
+  "frozen": true,
+  "reviewer": "claude_red_team_report_2026_05_29"
+}
