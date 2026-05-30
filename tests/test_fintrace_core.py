@@ -11,7 +11,7 @@ from fintrace.evaluator import evaluate_batch
 from fintrace.evaluator import run_frozen_evaluation
 from fintrace.feedback import record_manual_approval
 from fintrace.ingestion import assemble_cases, match_attachments, scan_manifest
-from fintrace.insights import case_failure_reason, optimization_insights, review_queue_rows
+from fintrace.insights import case_failure_reason, next_action, optimization_insights, review_queue_rows
 from fintrace.ontology import build_context
 from fintrace.parser import parse_case_fields, safe_float
 from fintrace.pipeline import run_batch
@@ -431,6 +431,41 @@ class FinTraceCoreTest(unittest.TestCase):
         self.assertIn("purpose_mismatch_detected", provenance)
         self.assertEqual(route, "need_context")
         self.assertIn("R013_PURPOSE_ATTACHMENT_MISMATCH", {hit["rule_id"] for hit in hits})
+
+    def test_review_reasons_and_actions_are_business_specific(self) -> None:
+        time_space_case = {
+            "parsed_fields": {
+                "employee_name": "周启明",
+                "expense_date": "2026-05-20",
+                "time_space_conflict_detail": "上海 09:15 vs 乌鲁木齐 14:10, distance≈3263km",
+            },
+            "decision": {"decision": Decision.MANUAL_REVIEW.value, "manual_review_reason": "存在非金额类风险信号，需要财务人员判断业务合理性或修正字段。"},
+            "policy_hits": [{"rule_id": "R012_TIME_SPACE_CONFLICT", "rule_class": "contextual_risk_signal"}],
+        }
+        split_case = {
+            "parsed_fields": {
+                "employee_name": "何雨晴",
+                "vendor": "上海星河商务餐饮有限公司",
+                "expense_date": "2026-05-21",
+                "expense_type": "餐饮",
+                "split_group_count": 3,
+                "split_group_total": 2520.0,
+            },
+            "decision": {"decision": Decision.MANUAL_REVIEW.value},
+            "policy_hits": [{"rule_id": "R003_SPLIT_INVOICE", "rule_class": "contextual_risk_signal"}],
+        }
+        mismatch_case = {
+            "parsed_fields": {"description": "拜访客户C009技术交流", "purpose_mismatch_terms": ["任天堂", "礼品卡"]},
+            "decision": {"decision": Decision.MANUAL_REVIEW.value},
+            "policy_hits": [{"rule_id": "R013_PURPOSE_ATTACHMENT_MISMATCH", "rule_class": "contextual_risk_signal"}],
+        }
+
+        self.assertIn("上海 09:15 vs 乌鲁木齐 14:10", case_failure_reason(time_space_case))
+        self.assertIn("机票", next_action(time_space_case))
+        self.assertIn("合计 2520.0 元", case_failure_reason(split_case))
+        self.assertIn("拆单", next_action(split_case))
+        self.assertIn("任天堂、礼品卡", case_failure_reason(mismatch_case))
+        self.assertIn("业务关系", next_action(mismatch_case))
 
     def test_human_feedback_memory_approves_same_boundary_case_next_time(self) -> None:
         root = test_root("feedback_memory")

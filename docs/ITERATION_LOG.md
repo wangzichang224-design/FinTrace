@@ -294,3 +294,27 @@
   - Claude 红方冻结集：28 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段抽取准确率 100%，错误案件数 0。
   - 回归脚本已纳入 Showcase 集，可一次性输出内置红队、Claude 红方和录屏 Showcase 三套冻结集指标。
   - 代表 case：`SHOW-TS-01` 命中 `R012_TIME_SPACE_CONFLICT`，`SHOW-SPLIT-01` 命中 `R003_SPLIT_INVOICE`，`SHOW-MIS-01` 命中 `R013_PURPOSE_ATTACHMENT_MISMATCH`。
+
+## Round 12：前端清晰化与财务话术整改
+
+- 用户反馈：
+  - 财务审核台里“不通过/复核原因”和“建议动作”过于笼统，周启明时空冲突案例没有明确说清“上海/乌鲁木齐、同日、无机票材料”。
+  - 页面标题被顶部白色区域遮挡。
+  - `诊断与优化台`、`评测与迭代` 对非工程用户不够直观。
+- 修改内容：
+  - `case_failure_reason()` 改为优先按规则 ID 输出具体业务原因，不再让通用 `manual_review_reason` 覆盖规则证据。
+  - `next_action()` 改为按规则 ID 输出具体动作：时空冲突要求补充机票/登机牌/行程单，拆单要求合并查看同日同供应商发票，事由不一致要求说明礼品卡/游戏机与客户拜访的业务关系。
+  - 前端三个入口改为 `批量审核`、`查原因`、`测试结果`；标题改为 `FinTrace 批量费控审核台`，并增加顶部留白和白底标题区。
+  - 批量审核表格默认只展示报销单号、员工、费用类型、金额、决策、风险、复核原因、建议动作。
+  - `查原因` 页新增解释卡片：字段溯源、规则命中、运行链路分别看什么。
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval-frozen datasets\showcase_fintrace_v1 --output-root runtime\showcase_eval`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+  - `rg -n "sk-[0-9a-fA-F]{16,}" -S .`
+  - `git diff --check`
+- 复测结论：
+  - 单元测试：21/21 通过。
+  - Showcase 冻结集：6 案，决策准确率 100%，字段抽取准确率 100%，错误案件数 0。
+  - 三套冻结集回归均通过。
+  - 抽查 `SHOW-TS-01`：原因已显示“上海 09:15 vs 乌鲁木齐 14:10，批次内未发现机票、登机牌或航班行程单”；建议动作已显示“补充上海至乌鲁木齐机票、登机牌、行程单或改签说明”。

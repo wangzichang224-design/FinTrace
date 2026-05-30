@@ -426,7 +426,11 @@ def mark_time_space_conflict_cases(group: list[CasePackage]) -> None:
             hour_gap = abs(hour - other_hour)
             if distance_km >= 1200 and hour_gap <= 6:
                 conflicts.append(other.case_id)
-                details.append(f"{city} {hour:.2f}h vs {other_city} {other_hour:.2f}h, distance≈{round(distance_km)}km")
+                details.append(
+                    f"{city} {format_time_label(row.get('expense_time'))} vs "
+                    f"{other_city} {format_time_label(other_row.get('expense_time'))}, "
+                    f"distance≈{round(distance_km)}km"
+                )
         if conflicts:
             case.batch_features["time_space_conflict_detected"] = True
             case.batch_features["time_space_conflict_peers"] = conflicts
@@ -455,6 +459,14 @@ def parse_expense_hour(value: Any) -> float | None:
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         return None
     return hour + minute / 60
+
+
+def format_time_label(value: Any) -> str:
+    text = str(value or "").strip().replace("：", ":")
+    match = re.search(r"(\d{1,2}):(\d{1,2})", text)
+    if not match:
+        return text or "unknown-time"
+    return f"{int(match.group(1)):02d}:{int(match.group(2)):02d}"
 
 
 def city_distance_km(left: str, right: str) -> float:

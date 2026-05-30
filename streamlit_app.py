@@ -48,10 +48,12 @@ st.set_page_config(page_title="FinTrace 中文费控 Agent", layout="wide")
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 1.0rem; padding-bottom: 2rem; max-width: 1480px;}
+    .block-container {padding-top: 3.2rem; padding-bottom: 2rem; max-width: 1480px;}
+    header[data-testid="stHeader"] {background: rgba(255, 255, 255, .96);}
     [data-testid="stMetricValue"] {font-size: 1.42rem;}
     [data-testid="stMetricLabel"] {font-size: .88rem;}
-    .fintrace-title {font-size: 2.05rem; font-weight: 780; color: #172033; line-height: 1.2;}
+    .fintrace-hero {background: #ffffff; border-bottom: 1px solid #e6eaf0; padding: .45rem 0 .75rem; margin-bottom: .8rem;}
+    .fintrace-title {font-size: 1.82rem; font-weight: 780; color: #172033; line-height: 1.25;}
     .fintrace-subtitle {font-size: .96rem; color: #596678; margin-top: .25rem; margin-bottom: .85rem;}
     .section-note {color: #5d6878; font-size: .88rem; margin-bottom: .7rem;}
     .trace-step {border-left: 4px solid #2f80ed; padding: .55rem .75rem; margin: .38rem 0; background: #f7fbff; border-radius: 4px;}
@@ -62,6 +64,8 @@ st.markdown(
     .risk-pill {display: inline-block; padding: .18rem .48rem; border-radius: 4px; background: #fff4e5; color: #8a4b00; font-weight: 650;}
     .action-box {border-left: 4px solid #2f80ed; background: #f7fbff; padding: .7rem .85rem; border-radius: 4px; margin: .45rem 0;}
     .danger-box {border-left: 4px solid #c53030; background: #fff5f5; padding: .7rem .85rem; border-radius: 4px; margin: .45rem 0;}
+    .explain-card {border: 1px solid #e5eaf1; background: #fbfcfe; border-radius: 6px; padding: .72rem .85rem; min-height: 6.2rem;}
+    .explain-card b {color: #1f2a44;}
     div[data-testid="stTabs"] button p {font-size: .95rem;}
     </style>
     """,
@@ -72,14 +76,18 @@ st.markdown(
 def main() -> None:
     init_state()
     render_sidebar()
-    st.markdown('<div class="fintrace-title">FinTrace 财务审核工作台</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="fintrace-subtitle">给财务同事日常批量初审使用：先看待处理案件、原因和建议动作；需要排查漏洞时再进入诊断与优化台。</div>',
+        """
+        <div class="fintrace-hero">
+          <div class="fintrace-title">FinTrace 批量费控审核台</div>
+          <div class="fintrace-subtitle">给财务同事日常批量初审使用：先看哪些单要处理、为什么、下一步怎么做；需要排查细节时再点“查原因”。</div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
-    st.info("当前定位：v0.1 MVP 负责 CSV/XLSX 批量导入、字段溯源、本地稳定模型/规则审查和可解释结果导出；DeepSeek、红蓝评测是增强展示层。")
+    st.info("当前定位：先做批量初审和可解释复核。DeepSeek 只辅助写审计摘要，最终风控边界仍由本地规则和门控兜底。")
 
-    tabs = st.tabs(["财务审核台", "诊断与优化台", "评测与迭代"])
+    tabs = st.tabs(["批量审核", "查原因", "测试结果"])
     with tabs[0]:
         finance_review_tab()
     with tabs[1]:
@@ -115,9 +123,9 @@ def render_sidebar() -> None:
 
 
 def finance_review_tab() -> None:
-    st.subheader("财务审核台")
+    st.subheader("批量审核")
     st.markdown(
-        '<div class="section-note">财务同事只需要完成三件事：导入批次、查看待处理案件、按建议动作处理。复杂链路放到诊断与优化台。</div>',
+        '<div class="section-note">上传或输入文件夹，查看哪些单能过、哪些要复核、为什么要复核，以及下一步具体动作。</div>',
         unsafe_allow_html=True,
     )
     left, right = st.columns([0.34, 0.66], gap="large")
@@ -185,7 +193,7 @@ def finance_review_tab() -> None:
     f1, f2, f3, f4 = st.columns([0.2, 0.2, 0.22, 0.38])
     decision_filter = f1.multiselect("决策", sorted(queue_df["决策"].dropna().unique()), key="finance_decision_filter")
     risk_filter = f2.multiselect("风险", sorted(queue_df["风险"].dropna().unique()), key="finance_risk_filter")
-    focus_filter = f3.multiselect("诊断焦点", sorted(queue_df["诊断焦点"].dropna().unique()), key="finance_focus_filter")
+    focus_filter = f3.multiselect("问题类型", sorted(queue_df["诊断焦点"].dropna().unique()), key="finance_focus_filter")
     keyword = f4.text_input("搜索员工/单号/供应商/发票号", key="finance_keyword")
 
     view = queue_df.copy()
@@ -203,7 +211,7 @@ def finance_review_tab() -> None:
         view,
         width="stretch",
         hide_index=True,
-        column_order=["报销单号", "员工", "部门", "费用类型", "供应商", "金额", "决策", "风险", "不通过/复核原因", "建议动作", "诊断焦点"],
+        column_order=["报销单号", "员工", "费用类型", "金额", "决策", "风险", "不通过/复核原因", "建议动作"],
     )
 
     selected_case = select_case_from_rows(result, view, "finance_case_detail")
@@ -234,7 +242,7 @@ def select_case_from_rows(result: dict, rows: pd.DataFrame, key: str) -> dict | 
     options = []
     for _, row in rows.iterrows():
         options.append(f"{row['报销单号']}｜{row['员工']}｜{row['决策']}｜{row['金额']}｜{row['case_id']}")
-    selected = st.selectbox("查看案件处理建议", options, key=key)
+    selected = st.selectbox("点开一笔单看具体原因", options, key=key)
     case_id = selected.rsplit("｜", 1)[-1]
     return next((case for case in result.get("case_results", []) if case.get("case_id") == case_id), None)
 
@@ -292,11 +300,15 @@ def diagnostics_optimization_tab() -> None:
     result = require_batch()
     if not result:
         return
-    st.subheader("诊断与优化台")
+    st.subheader("查原因")
     st.markdown(
-        '<div class="section-note">这里给产品/风控/财务主管排查：为什么不通过、卡在哪个节点、规则阈值和本体上下文该怎么优化。</div>',
+        '<div class="section-note">这里不是日常审核主页面，而是用来点开一笔单，看证据、规则、字段来源和运行链路。</div>',
         unsafe_allow_html=True,
     )
+    c0, c1, c2 = st.columns(3)
+    c0.markdown('<div class="explain-card"><b>字段溯源</b><br/>这笔金额、城市、发票号是从哪个 ERP 行、OCR 文本或审批聊天里抽出来的。</div>', unsafe_allow_html=True)
+    c1.markdown('<div class="explain-card"><b>规则命中</b><br/>系统为什么认为它有风险，例如拆单、时空冲突、审批未完成或附件不一致。</div>', unsafe_allow_html=True)
+    c2.markdown('<div class="explain-card"><b>运行链路</b><br/>如果结果不准，用来定位错在文件解析、字段抽取、规则、本体还是 DeepSeek 门控。</div>', unsafe_allow_html=True)
     insights = optimization_insights(result)
     s = insights["summary"]
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -306,7 +318,7 @@ def diagnostics_optimization_tab() -> None:
     c4.metric("失败案件", s["失败案件"])
     c5.metric("通过案件", s["通过"])
 
-    st.markdown("#### 漏洞与优化优先级")
+    st.markdown("#### 本批次问题汇总")
     if insights["top_issues"]:
         st.dataframe(pd.DataFrame(insights["top_issues"]), width="stretch", hide_index=True)
     else:
@@ -322,7 +334,7 @@ def diagnostics_optimization_tab() -> None:
         rows,
         width="stretch",
         hide_index=True,
-        column_order=["报销单号", "员工", "费用类型", "金额", "决策", "风险", "不通过/复核原因", "建议动作", "诊断焦点"],
+        column_order=["报销单号", "员工", "费用类型", "金额", "决策", "风险", "不通过/复核原因", "建议动作"],
     )
 
     case = select_case_from_rows(result, rows, "diagnostic_case_selector")
@@ -388,7 +400,9 @@ def field_provenance_case_view(case: dict) -> None:
 
 
 def showcase_tab() -> None:
-    tabs = st.tabs(["红蓝评测", "批量指标", "迭代记录"])
+    st.subheader("测试结果")
+    st.markdown('<div class="section-note">这里主要给开发和展示使用：看红队测试集、回归指标和迭代记录。日常财务审核只看“批量审核”。</div>', unsafe_allow_html=True)
+    tabs = st.tabs(["跑测试", "批次指标", "迭代记录"])
     with tabs[0]:
         evaluation_tab()
     with tabs[1]:
@@ -636,7 +650,7 @@ def batch_metrics_tab() -> None:
     result = require_batch()
     if not result:
         return
-    st.subheader("批量指标面板")
+    st.subheader("批次指标")
     render_batch_metrics(result)
     metrics = result.get("batch_metrics", {})
     c1, c2 = st.columns(2, gap="large")
@@ -658,18 +672,18 @@ def batch_metrics_tab() -> None:
 
 
 def evaluation_tab() -> None:
-    st.subheader("红蓝评测台")
-    st.markdown('<div class="section-note">红队以“ERP 导出 + 异构附件包”为单位造数据，蓝队 FinTrace 批量审查后由裁判器打分。</div>', unsafe_allow_html=True)
+    st.subheader("跑测试")
+    st.markdown('<div class="section-note">这里用固定或随机样本检查系统有没有退步。日常财务人员不用看这一页，录屏或开发回归时使用。</div>', unsafe_allow_html=True)
     c1, c2, c3 = st.columns([0.22, 0.22, 0.56])
     n = c1.slider("样本数", min_value=50, max_value=500, value=500, step=50)
     seed = c2.number_input("随机种子", min_value=1, max_value=9999, value=42)
     llm_mode = c3.radio("推理模式", ["mock", "deepseek"], horizontal=True, key="eval_llm_mode", format_func=lambda v: "本地稳定模型" if v == "mock" else "DeepSeek 结构化推理")
-    if st.button("运行红蓝对抗评测", type="primary"):
+    if st.button("运行测试", type="primary"):
         with st.spinner("正在生成红队批量样本、运行 FinTrace、计算 Precision / Recall / F1..."):
             st.session_state["evaluation_report"] = run_redteam_evaluation(EVAL_ROOT, n=n, seed=int(seed), llm_mode=llm_mode)
     report = st.session_state.get("evaluation_report")
     if not report:
-        st.info("点击运行后，可查看总体指标、目标达成情况和 case 级错误归因。")
+        st.info("点击运行后，可以看到准确率、召回率、字段抽取准确率和错误案件。")
         return
     render_evaluation_report(report)
 
@@ -738,7 +752,7 @@ def render_evaluation_report(report: dict) -> None:
 def require_batch() -> dict | None:
     result = st.session_state.get("batch_result")
     if not result:
-        st.info("请先在“财务审核台”运行一个批次。")
+        st.info("请先在“批量审核”运行一个批次。")
         return None
     return result
 
