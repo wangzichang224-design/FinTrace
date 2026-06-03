@@ -1,0 +1,47 @@
+services:
+  fintrace-frontend:
+    build:
+      context: .
+      target: base
+    ports:
+      - "8509:8509"
+    volumes:
+      - ./runtime:/app/runtime
+      - ./datasets:/app/datasets
+      - ./.env:/app/.env:ro
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - FINTRACE_APPROVAL_MEMORY_PATH=${FINTRACE_APPROVAL_MEMORY_PATH:-runtime/feedback/approval_memory.json}
+    command: streamlit run streamlit_app.py --server.port=8509 --server.address=0.0.0.0
+
+  fintrace-cli:
+    build:
+      context: .
+      target: cli
+    volumes:
+      - ./runtime:/app/runtime
+      - ./datasets:/app/datasets
+      - ./.env:/app/.env:ro
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+    entrypoint: ["python", "cli.py"]
+
+  fintrace-test:
+    build: .
+    volumes:
+      - ./runtime:/app/runtime
+      - ./datasets:/app/datasets
+    command: python -m unittest discover -s tests -v
+
+  fintrace-eval:
+    build:
+      context: .
+      target: cli
+    volumes:
+      - ./runtime:/app/runtime
+      - ./datasets:/app/datasets
+    entrypoint: ["python", "cli.py", "eval", "--output-root", "runtime/eval_docker", "--n", "80", "--seed", "42"]

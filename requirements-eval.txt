@@ -1,0 +1,5 @@
+# Optional evaluation and observability tools.
+# Core FinTrace regression still uses requirements.txt plus built-in eval/eval-frozen.
+deepeval
+ragas
+arize-phoenix

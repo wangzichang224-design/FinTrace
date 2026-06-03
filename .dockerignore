@@ -1,0 +1,40 @@
+# ── Build ──
+.git/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv_windows/
+venv/
+.pytest_cache/
+*.egg-info/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# ── Runtime ──
+runtime/batches/
+runtime/test_runs/
+runtime/eval*/
+runtime/feedback/
+runtime/diagnostics/
+runtime/uploads/
+runtime/demo/
+
+# ── Secrets ──
+.env
+.env.local
+.env.*.local
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Docs artifacts ──
+*.log

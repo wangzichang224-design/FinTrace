@@ -1,0 +1,424 @@
+# FinTrace v1 中文版迭代记录
+
+## 迭代目标
+
+把 FinTrace 从英文批量审单原型升级为中文企业级费控 Agent 展示版，重点补齐四件事：中文界面与报告、DeepSeek 结构化推理、高仿真红队数据、测试驱动的可追溯迭代过程。
+
+## Round 0：基线检查
+
+- 状态：原型已具备 BatchGraph / CaseGraph、manifest、字段溯源、硬规则、本体上下文、评测器和 Streamlit 前端。
+- 发现问题：
+  - 前端、README、CLI 输出以英文为主，不利于中文作品集和录屏展示。
+  - 部分中文字段别名、规则文案、本体文案存在乱码，中文 ERP/OCR 材料可读性不足。
+  - 红队样本过于规则化，员工、供应商、审批记录、OCR 噪声和 ERP 字段不像真实企业数据。
+  - DeepSeek 接入只做了最小调用，没有在 trace 中明确记录 JSON 解析失败、调用失败和回退原因。
+
+## Round 1：中文化与真实感增强
+
+- 修改内容：
+  - 重写中文字段抽取别名，支持 `报销单号`、`员工编号`、`费用类型`、`价税合计`、`发票号码` 等 ERP/OCR 常见字段。
+  - 将硬规则、本体工具、决策原因、CLI 输出、README、Streamlit 页面全部中文化。
+  - 红队生成器升级为“ERP 费控导出 + 发票 OCR 文本 + 企业微信审批记录”的批量材料包。
+  - 新增相似发票号场景和 `R007_SIMILAR_INVOICE_NO` 规则，补齐“发票号相似/连号/改号”攻击覆盖。
+  - DeepSeek 模式要求严格 JSON 输出，并把调用失败、JSON 解析失败、无 Key 回退写入 reasoning trace 和 error registry。
+
+- 已验证：
+  - `python -m unittest discover -s tests -v`
+  - 结果：2 个核心测试通过。
+
+## Round 2：评测复跑与前端展示优化
+
+- 修改内容：
+  - Streamlit 改为中文企业费控控制台，新增 `字段溯源`、`批量指标`、`迭代记录` 独立页面。
+  - 红蓝评测报告增加目标达成状态、场景分布、错误类型统计和中文 case 级 drill-down。
+  - README 明确 DeepSeek Key 只通过环境变量或侧边栏输入，不写入代码、日志或项目文件。
+
+- 复跑命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval --output-root runtime\eval_cn_mock --n 500 --seed 42`
+
+- 复跑结果：
+  - 单元测试通过。
+  - 500 条评测首次复跑：硬违规 Precision/Recall/F1 和字段准确率均为 100%，但整体决策准确率为 66.6%，柔性放行未达标。
+  - 错误归因：`clean`、`holiday_flex`、`strategic_client_flex`、`ocr_amount_noise` 被误判为 `MANUAL_REVIEW`，原因是高仿真生成器过度复用同员工/同供应商/同日期，误触发 `R003_SPLIT_INVOICE`。
+
+## Round 3：根据评测结果修正数据生成器
+
+- 修改内容：
+  - 非攻击样本的供应商门店加入分店后缀，避免干净样本和柔性样本在大批量下被误归并为拆票。
+  - 保留真正的 `split_invoice` 和 `similar_invoice_no` 场景共享供应商/日期，用于触发规则链。
+
+- 复跑命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval --output-root runtime\eval_cn_mock_v2 --n 500 --seed 42`
+  - `python cli.py eval --output-root runtime\eval_cn_deepseek_fallback --n 60 --seed 42 --llm-mode deepseek`
+
+- 复跑结果：
+  - 单元测试：通过。
+  - 500 条本地模型评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
+  - DeepSeek 无 Key 回退评测：60 条样本决策准确率 100%，并在 error registry 中记录 `LLM调用失败` 回退事件；字段冲突样本也被聚合展示，证明错误定位链路可用。
+
+## 剩余风险
+
+- v1 图片/PDF OCR 仍是可选增强；没有本地 OCR 时，建议使用扫描全能王或企业微信导出的文本附件。
+- DeepSeek 真实调用依赖网络和 Key；无 Key 或网络失败时，本地确定性模型会保证批处理可继续运行。
+- 高仿真数据是 mock 企业数据，不包含真实公司隐私，可用于录屏、图文展示和面试讲解。
+
+## Round 4：根据评审做 MVP 瘦身与风控边界重画
+
+- 评审问题：
+  - 项目能力堆叠较多，MVP 范围不清。
+  - “硬规则”和“柔性推理”边界不够清楚。
+  - 企业本体缺少冷启动、维护责任和数据来源说明。
+  - LLM 缺少合规门控，可能在财务场景里产生幻觉风险。
+  - 批量处理中缺少部分失败策略。
+  - 文档有工程细节，但缺少“为什么这样做”的架构决策记录。
+
+- 修改内容：
+  - 新增 `docs/MVP_SCOPE.md`，把 v0.1 MVP 定义为 CSV/XLSX 批量导入、字段溯源、本地稳定模型、可解释结果导出。
+  - 新增 `docs/ONTOLOGY_COLD_START.md`，说明费用标准、节假日、客户等级、员工信用和供应商风险的数据来源、维护责任、更新频率和冷启动默认策略。
+  - 新增 `docs/ARCHITECTURE_DECISIONS.md`，解释为什么使用双层 LangGraph、为什么本地稳定模型是基准、为什么 DeepSeek 是增强层、为什么 Streamlit/红蓝评测后置。
+  - 将规则改为 `blocking_control` 和 `contextual_risk_signal` 两类；拆票、跨期、相似票号、OCR 金额冲突不再作为直接硬拒绝，只进入人工复核/推理链。
+  - 给 `context_info` 增加 `context_quality`；缺员工信用、供应商风险或费用基准时，不允许自动柔性通过。
+  - 给 DeepSeek 增加二次门控：低置信度、缺证据、与本地基准冲突、试图覆盖阻断控制时回退或转人工复核。
+  - 批量处理改为部分成功策略：单个 CaseGraph 异常时生成失败 case result，默认 `MANUAL_REVIEW`，批次不整体回滚。
+  - 前端增加 MVP 定位提示、规则分类、本体冷启动质量、LLM 门控状态和失败案件数。
+
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -B -c "import cli, streamlit_app; import fintrace.schemas, fintrace.policies, fintrace.ontology, fintrace.reasoning, fintrace.pipeline; print('import ok')"`
+  - `python cli.py eval --output-root runtime\eval_review_fix --n 500 --seed 42`
+  - `Invoke-WebRequest -UseBasicParsing http://localhost:8508`
+
+- 复跑结果：
+  - 单元测试：7/7 通过。
+  - 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
+  - 新增目标 `人工复核比例可解释`：达成。
+  - 前端：`http://localhost:8508` 返回 200。
+
+## Round 5：前端改为财务人员优先
+
+- 用户反馈：
+  - 前端应作为财务人员日常使用入口，尽可能简单。
+  - 复杂能力应放到单独区域，用于查看具体不通过原因、运行过程、逻辑推理过程，并支持漏洞查询和优化。
+
+- 修改内容：
+  - 将 Streamlit 从 8 个并列页面收敛为 3 个入口：`财务审核台`、`诊断与优化台`、`评测与迭代`。
+  - `财务审核台` 只保留导入批次、运行批量审核、批次概览、待处理案件池、不通过/复核原因和建议动作。
+  - 新增 `fintrace.insights` 纯逻辑模块，把不通过原因、下一步动作、诊断焦点、漏洞聚合和优化建议从 UI 中抽离，便于测试和复用。
+  - `诊断与优化台` 聚合 Top 问题、规则命中、上下文缺失、冷启动字段、LLM 门控和错误源；支持按员工、单号、供应商、规则 ID、错误类型查询。
+  - 单案详情改为四个调试视角：不通过原因、运行链路、规则与本体、字段溯源。
+
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -B -c "import streamlit_app; import fintrace.insights; print('import ok')"`
+  - `python cli.py eval --output-root runtime\eval_frontend_simple --n 500 --seed 42`
+  - Streamlit `AppTest.from_file('streamlit_app.py')` 无头渲染检查。
+
+- 复跑结果：
+  - 单元测试：8/8 通过。
+  - 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
+  - 无头前端检查：标题、`财务审核台`、`诊断与优化台`、`评测与迭代` 渲染正常，异常数 0。
+
+## Round 6：可信度补丁与评审漏洞修复
+
+- 评审问题：
+  - 附件匹配使用简单子串，发票号或报销单号重叠时可能错配。
+  - 金额解析对 `RMB 1,280.50`、`￥12，345.67` 等真实 ERP/OCR 格式不够稳。
+  - 审批聊天中的提示注入样本原本金额在标准内，系统会直接通过，评测没有真正覆盖“话术诱导”风险。
+  - 供应商高危口径在规则层和本体层不完全一致。
+  - 企业本体仍缺少真实 ERP/HR/CRM/供应商系统的数据对接契约。
+
+- 修改内容：
+  - 附件匹配改为带边界的精确 token 评分：报销单号、发票号、发票 hash 必须完整命中，避免 `FT-00001` 匹配到 `FT-000010`。
+  - CSV 读取增加 `utf-8-sig`、`utf-8`、`gb18030`、`gbk` 兜底。
+  - 金额解析支持 `RMB`、`CNY`、`¥/￥`、中文逗号和千分位格式。
+  - 新增 `R009_CHAT_PROMPT_INJECTION` 上下文风险信号，聊天中出现“忽略制度/绕过审核/立即批准”等越权诱导时转人工复核。
+  - 供应商本体风险复用 `BLACKLISTED_VENDOR_TOKENS`，统一规则层和本体层高危定义。
+  - 红队数据新增两个干净样本场景，避免新增提示注入人工复核后把人工复核率目标推高到不可解释。
+  - 新增 `docs/ENTERPRISE_INTEGRATION.md`，定义真实 ERP、HR、CRM、供应商、费用政策和节假日指数的数据源契约。
+
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -B -c "import fintrace.ingestion, fintrace.parser, fintrace.policies, fintrace.ontology, fintrace.redteam; print('import ok')"`
+  - `python cli.py eval --output-root runtime\eval_credibility_patch --n 500 --seed 42`
+  - `python cli.py eval --output-root runtime\eval_credibility_patch_v2 --n 500 --seed 42`
+
+- 复盘过程：
+  - 第一轮复测：决策准确率 93.40%，错误案件 33。原因是新增 `clean_office/clean_transport` 样本复用了供应商、员工和日期，被拆票规则误判为风险信号。
+  - 迭代修复：给新增干净样本供应商追加分店后缀，保持真实企业分店口径，同时避免被拆票归并。
+
+- 复跑结果：
+  - 单元测试：11/11 通过。
+  - 第二轮 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
+  - 新增测试覆盖：附件精确匹配、千分位金额解析、提示注入风险信号。
+
+## Round 7：对标企业 ERP 费控并加入人工通过记忆
+
+- 用户反馈：
+  - 需要明确说明企业 ERP 目前大多如何做费用审核，并对比 FinTrace 做改进。
+  - 希望系统有智能提升：Agent 拿捏不定转人工后，如果人工审核通过，下次遇到相同模式可以直接通过。
+
+- 修改内容：
+  - 新增 `docs/ERP_EXPENSE_BENCHMARK.md`，说明主流 ERP/费控系统的典型链路：员工提交、OCR 回填、政策规则校验、审批流、财务复核、付款和审计日志。
+  - 新增 `fintrace.feedback`，实现受控人工反馈记忆：记录人工通过案例、生成相似模式签名、设置金额上限和有效期、下次审核自动匹配。
+  - 决策引擎接入人工通过记忆：仅当本地稳定模型输出 `MANUAL_REVIEW` 且没有底线风险时，才允许命中记忆后 `APPROVE_WITH_FLEX`。
+  - 前端 `财务审核台` 增加“人工通过后沉淀为受控例外”入口，财务人员可录入复核人和通过理由。
+  - CLI 新增 `feedback-approve` 命令，可从 `batch_result.json` 或单案结果中记录人工通过。
+  - DeepSeek 门控增加记忆保护：如果 DeepSeek 与历史人工通过记忆冲突，系统按本地受控例外记忆处理，而不是让 LLM 推翻人工复核沉淀。
+
+- 风险边界：
+  - 不学习缺原件、重复发票、供应商黑名单、拆票、跨期、相似票号、OCR 金额冲突、审批聊天提示注入。
+  - 只学习同员工、同供应商、同费用类型、同城市/客户/项目下的边界特批模式。
+  - 下一次金额不得超过历史人工通过金额的 105%。
+
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -B -c "import cli, streamlit_app; import fintrace.feedback, fintrace.reasoning; print('import ok')"`
+  - `python cli.py eval --output-root runtime\eval_feedback_memory --n 500 --seed 42`
+  - `Invoke-WebRequest -UseBasicParsing http://localhost:8508`
+
+- 复跑结果：
+  - 单元测试：12/12 通过。
+  - 500 条评测：决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，硬违规 F1 100%，字段准确率 100%，错误案件数 0。
+  - 新增测试覆盖：人工通过记忆能让相同边界案例下一次自动柔性通过。
+
+## Round 8：红蓝评测物理隔离整改
+
+- 用户/评审问题：
+  - 原 `eval` 在同一次调用里完成红队数据生成、蓝队审核和裁判评测，属于动态灰盒自测，不是严格红蓝对抗。
+  - 红队数据、蓝队规则和裁判标注都在同一包内，容易变成“验证系统是否符合作者预期”，而不是验证系统是否能经受未知攻击。
+  - 每次评测运行时重新生成样本，规则修改后的前后版本缺少同一冻结标注集上的可比性。
+
+- 修改内容：
+  - 新增顶层 `redteam/` 独立包，冻结数据生成器不 import `fintrace.*`，不复用蓝队 `Decision`、`policies.py` 或 `reasoning.py`。
+  - 新增 `datasets/fintrace-redteam-v1` 冻结数据集，包含 ERP CSV、OCR/审批聊天附件、`ground_truth.json` 和 `dataset_manifest.json`。
+  - CLI 新增 `redteam-freeze` 与 `eval-frozen`：前者生成冻结集，后者只读冻结目录评测，不在评测时重新生成样本。
+  - `run_redteam_evaluation()` 保留为开发灰盒自测，并在报告中标记 `evaluation_mode=dynamic_graybox_generation`；`run_frozen_evaluation()` 标记为 `evaluation_mode=frozen_dataset`。
+  - 新增 `docs/RED_BLUE_ISOLATION.md`，明确三层隔离：代码依赖隔离、冻结数据隔离、裁判只读冻结标注。
+  - 修复隔离测试：用 AST 检查 `redteam/generator.py` 是否存在 `import fintrace` / `from fintrace...`，不再因为元数据里出现项目名而误判失败。
+
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval-frozen datasets\fintrace-redteam-v1 --output-root runtime\eval_frozen`
+  - `python cli.py eval --output-root runtime\eval_dynamic_smoke --n 140 --seed 42`
+  - `python -B -c "import cli; import fintrace.evaluator; import redteam.generator; print('import ok')"`
+  - `rg -n "sk-[0-9a-fA-F]{16,}" -S .`
+  - `git diff --check`
+
+- 复跑结果：
+  - 单元测试：13/13 通过，新增隔离测试确认顶层 `redteam/` 包没有 import `fintrace.*`。
+  - 冻结数据集评测：84 条样本，决策准确率 100%，硬违规 Precision 100%，硬违规 Recall 100%，字段准确率 100%，错误案件数 0。
+  - 动态灰盒烟测：140 条样本，决策准确率 100%，硬违规 Precision/Recall/F1 均为 100%，字段准确率 100%，错误案件数 0。
+  - 安全检查：未检出 `sk-...` 形式 API Key；`git diff --check` 无空白错误。
+
+- 对外表述边界：
+  - v0.1 做到了个人项目可实现的工程隔离：红队包不依赖蓝队代码，评测使用版本化冻结标注集，不再运行时动态生成样本。
+  - 仍不冒充企业级真实盲测；真实红蓝对抗需要独立红队、独立蓝队和独立裁判。
+
+## Round 9：DeepSeek 真实调用评测与门控迭代
+
+- 用户目标：
+  - 使用 DeepSeek API 走一遍“生成新数据 → 测评 → 根据结果迭代”的真实模型路径。
+  - Key 只在单次命令进程环境变量中临时注入，不写入代码、文档、runtime 报告或 Git 提交。
+
+- Round 9.1 基线真实调用：
+  - 命令：`python cli.py eval --output-root runtime\eval_deepseek_live_round1 --n 28 --seed 20260529 --llm-mode deepseek`
+  - 结果：决策准确率 92.86%，硬违规 Precision/Recall/F1 均为 100%，字段准确率 100%，错误案件数 2。
+  - 失败归因：2 个错误均为 `holiday_flex`，本地稳定模型基于节假日本体阈值输出 `APPROVE_WITH_FLEX`，DeepSeek 更保守输出人工复核，旧门控将所有本地/LLM 不一致统一转 `MANUAL_REVIEW`。
+
+- 修改内容：
+  - 调整 `apply_llm_guardrails()`：当本地稳定模型已给出 `local_flex_approved`，且只命中金额类 `R004_ABSOLUTE_LIMIT`，DeepSeek 只是更保守地要求人工复核、没有新增非金额风险证据时，回退采用本地本体柔性通过基准。
+  - 决策中记录 `guardrail_status=llm_conservative_fallback_to_local_flex`，保留 DeepSeek 的保守意见 `llm_review_reason`，方便前端解释“为什么没有采纳 LLM 的人工复核建议”。
+  - 新增单测覆盖该门控策略，避免后续重构把柔性场景重新误转人工。
+
+- Round 9.2 同 seed 复测：
+  - 命令：`python cli.py eval --output-root runtime\eval_deepseek_live_round2 --n 28 --seed 20260529 --llm-mode deepseek`
+  - 结果：决策准确率 100%，硬违规 Precision/Recall/F1 均为 100%，字段准确率 100%，错误案件数 0。
+  - Guardrail 变化：原 `llm_conflict_with_local_baseline` 2 例，变为 `llm_conservative_fallback_to_local_flex` 2 例。
+
+- Round 9.3 新 seed 回归：
+  - 命令：`python cli.py eval --output-root runtime\eval_deepseek_live_round2_newseed --n 42 --seed 20260530 --llm-mode deepseek`
+  - 结果：决策准确率 100%，硬违规 Precision/Recall/F1 均为 100%，柔性放行准确率 100%，字段准确率 100%，错误案件数 0。
+
+- 产品结论：
+  - DeepSeek 适合作为结构化审计底稿增强层，但不能覆盖本地风控边界和企业本体阈值。
+  - 当 LLM 更激进时，必须被 blocking/context guardrail 拦住；当 LLM 只是更保守且没有新风险证据时，可以回退到可解释的本地本体计算，避免把可自动柔性放行的案件过度推给人工。
+
+## Round 10：Claude 红方攻击集整改与冻结回归
+
+- 红方问题：
+  - `RA-00023` 审批状态为未审批，系统原先缺少对应规则。
+  - `RA-00024` 金额为 0，系统原先会把空值和 0 都当成低风险金额。
+  - 冷启动场景下微超和巨超被同一套人工复核策略处理，无法区分“可解释微超”和“明显异常巨超”。
+  - 服务采购/咨询类大额支出不宜在冷启动下直接拒绝，应该核验合同、报告和验收材料。
+- 修改内容：
+  - 新增 `R010_APPROVAL_INCOMPLETE`，审批为空、未审批、审批中、待审批、驳回、pending、rejected 等转人工复核。
+  - 新增 `R011_ABNORMAL_AMOUNT`，金额缺失、无法解析、`<=0` 转人工复核，parser 同步记录“金额异常”。
+  - 新增 `fintrace/default_policy_rules.json` 和 `fintrace/policy_config.py`，费用限额、黑名单、审批状态、冷启动阈值、批量采购和服务采购关键词全部可由 JSON 覆盖。
+  - 冷启动策略改为分层：微超 `<=5%` 柔性通过，巨超 `>50%` 拒绝，S/A 客户招待可在客户倍数内柔性通过，批量采购可在配置上限内通过，服务采购转人工核验。
+  - DeepSeek 门控前置本地 REJECT 保护，LLM 不能把本地确定性拒绝降级成人工复核或通过。
+  - 将 Claude 上传数据冻结为 `datasets/red_attack_v1`，并新增 `docs/RED_ATTACK_V1_REMEDIATION_REPORT.md`。
+  - 新增 `scripts/run_regression.ps1`，把单测、内置冻结集和 Claude 红方冻结集串成一次回归。
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval-frozen datasets\fintrace-redteam-v1 --output-root runtime\regression_check\fintrace_redteam`
+  - `python cli.py eval-frozen datasets\red_attack_v1 --output-root runtime\regression_check\red_attack_v1`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+- 复测结论：
+  - 单元测试：18/18 通过。
+  - `datasets\fintrace-redteam-v1` 冻结评测：84 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段抽取准确率 100%，错误案件数 0。
+  - `datasets\red_attack_v1` 冻结评测：28 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段抽取准确率 100%，错误案件数 0。
+  - 回归脚本 `scripts\run_regression.ps1` 通过，能一次性输出两套冻结集指标摘要。
+
+## Round 11：Showcase 压力测试集与视频叙事收口
+
+- 目标变化：
+  - 暂停继续堆新功能，优先把 FinTrace 打磨成可录屏、可解释、可评测的作品集 Showcase。
+  - 演示重点从“上传一张票据问 AI”转为“批量异构材料进入系统后，Agent 如何定位复杂业务风险并给出证据链”。
+- 新增能力：
+  - 新增 `datasets/showcase_fintrace_v1` 冻结演示集，覆盖 3 类强冲突：同日远距离时空冲突、拆单规避、客户拜访事由与附件商品实质不一致。
+  - 新增 `R012_TIME_SPACE_CONFLICT`：同一员工同日远距离城市消费，且批次内没有机票/航班证据时，转人工复核。
+  - 新增 `R013_PURPOSE_ATTACHMENT_MISMATCH`：报销事由为客户拜访/业务沟通，但附件出现游戏机、礼品卡等非业务消费关键词时，转人工复核。
+  - 新增 `docs/ROADMAP.md`，将路线图拆为 v0.1 报销审核 MVP、v0.2 Showcase + 高仿真红队、v0.3 三单匹配/合同/RAG/预算分析。
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval-frozen datasets\showcase_fintrace_v1 --output-root runtime\showcase_eval`
+  - `python cli.py eval-frozen datasets\fintrace-redteam-v1 --output-root runtime\regression_check\fintrace_redteam`
+  - `python cli.py eval-frozen datasets\red_attack_v1 --output-root runtime\regression_check\red_attack_v1`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+- 复测结论：
+  - 单元测试：20/20 通过。
+  - Showcase 冻结集：6 案，决策准确率 100%，字段抽取准确率 100%，错误案件数 0。
+  - 内置冻结红队集：84 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段抽取准确率 100%，错误案件数 0。
+  - Claude 红方冻结集：28 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段抽取准确率 100%，错误案件数 0。
+  - 回归脚本已纳入 Showcase 集，可一次性输出内置红队、Claude 红方和录屏 Showcase 三套冻结集指标。
+  - 代表 case：`SHOW-TS-01` 命中 `R012_TIME_SPACE_CONFLICT`，`SHOW-SPLIT-01` 命中 `R003_SPLIT_INVOICE`，`SHOW-MIS-01` 命中 `R013_PURPOSE_ATTACHMENT_MISMATCH`。
+
+## Round 12：前端清晰化与财务话术整改
+
+- 用户反馈：
+  - 财务审核台里“不通过/复核原因”和“建议动作”过于笼统，周启明时空冲突案例没有明确说清“上海/乌鲁木齐、同日、无机票材料”。
+  - 页面标题被顶部白色区域遮挡。
+  - `诊断与优化台`、`评测与迭代` 对非工程用户不够直观。
+- 修改内容：
+  - `case_failure_reason()` 改为优先按规则 ID 输出具体业务原因，不再让通用 `manual_review_reason` 覆盖规则证据。
+  - `next_action()` 改为按规则 ID 输出具体动作：时空冲突要求补充机票/登机牌/行程单，拆单要求合并查看同日同供应商发票，事由不一致要求说明礼品卡/游戏机与客户拜访的业务关系。
+  - 前端三个入口改为 `批量审核`、`查原因`、`测试结果`；标题改为 `FinTrace 批量费控审核台`，并增加顶部留白和白底标题区。
+  - 批量审核表格默认只展示报销单号、员工、费用类型、金额、决策、风险、复核原因、建议动作。
+  - `查原因` 页新增解释卡片：字段溯源、规则命中、运行链路分别看什么。
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval-frozen datasets\showcase_fintrace_v1 --output-root runtime\showcase_eval`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+  - `rg -n "sk-[0-9a-fA-F]{16,}" -S .`
+  - `git diff --check`
+- 复测结论：
+  - 单元测试：21/21 通过。
+  - Showcase 冻结集：6 案，决策准确率 100%，字段抽取准确率 100%，错误案件数 0。
+  - 三套冻结集回归均通过。
+  - 抽查 `SHOW-TS-01`：原因已显示“上海 09:15 vs 乌鲁木齐 14:10，批次内未发现机票、登机牌或航班行程单”；建议动作已显示“补充上海至乌鲁木齐机票、登机牌、行程单或改签说明”。
+
+## Round 13：Showcase 黄金路径与案例对比包装
+
+- 目标变化：
+  - 不继续扩展底层财务规则，优先把现有能力包装成 1-2 分钟可讲清的演示路径。
+  - 将 `datasets/showcase_fintrace_v1` 固定演示集提升为前端首选入口，避免录屏时默认生成 80 笔随机红队样本导致叙事分散。
+- 修改内容：
+  - 新增 `fintrace/showcase.py`，把 Showcase 场景标签、三类风险叙事、推荐对比组合、案件对比摘要和字段来源摘要抽成纯函数。
+  - `streamlit_app.py` 新增 `加载冻结 Showcase` 黄金路径：读取固定 6 笔样本并使用唯一 batch id 运行，避免重复写同一 `traces.jsonl`。
+  - 前端新增 `案例对比` 页，支持两笔 case 并排展示核心字段、命中规则、复核原因、建议动作、证据引用和字段来源。
+  - `测试结果` 页新增 `Showcase 回归`，将冻结演示集回归放到随机红队评测之前；场景分布显示中文业务标签。
+  - 新增 `docs/SHOWCASE_SCRIPT.md`，沉淀面试/作品集录屏的 1-2 分钟讲解顺序和边界话术。
+  - README 快速开始调整为优先运行 Showcase 冻结评测和 Streamlit 前端。
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['streamlit_app.py','fintrace/showcase.py']]"`
+  - `python cli.py eval-frozen datasets\showcase_fintrace_v1 --output-root runtime\showcase_eval`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+- 复测结论：
+  - 单元测试：22/22 通过。
+  - Showcase 冻结集：6 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段准确率 100%，错误案件数 0。
+  - 内置冻结红队集：84 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段准确率 100%，错误案件数 0。
+  - Claude 红方冻结集：28 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段准确率 100%，错误案件数 0。
+
+## Round 16：启动弹窗修复、DeepSeek 本地配置与模拟票据升级
+
+- 用户反馈：
+  - 双击启动时反复弹出 Codex/Electron `Error launching app`，影响本地演示体验。
+  - 前端仍可能把 `LLM调用失败`、`LLM门控`、`冷启动字段 employee_credit` 等开发诊断展示给财务用户。
+  - 示例数据缺少可视化模拟发票，只看到 OCR 文本，不利于对外展示。
+- 修改内容：
+  - `scripts/start_frontend.ps1` 不再使用 `cmd /c start` 交给 Windows 默认处理器，而是显式优先使用 Edge、其次 Chrome 打开 localhost；找不到浏览器时只打印 URL。
+  - 新增 `fintrace/local_env.py`，CLI 和 Streamlit 启动时自动加载 `.env` / `.env.local`；DeepSeek Key 写入本地忽略文件 `.env.local`，不进入 Git。
+  - `批量审核` 主界面只显示 `规则命中` 和 `诊断焦点` 等业务风险；LLM 调用、门控、冷启动和上下文缺失写入 `runtime/diagnostics/latest_frontend_diagnostics.md`。
+  - 新增 `scripts/generate_showcase_assets.py`，为 Showcase 6 个 case 生成 `visual_invoices/*.png` 模拟发票，并更新 `dataset_manifest.json`。
+  - 新增 `scripts/create_deepseek_testsets.py` 和 `scripts/summarize_deepseek_testsets.py`，生成 DeepSeek 专项测试集并汇总内部诊断。
+  - 缺上下文测试集首轮暴露错标：同一员工被拆成多个未知 ID，破坏时空冲突/拆单前提；修复为同一场景保留同一未知员工 ID，并同步 ground truth。
+- 验证命令：
+  - `powershell -ExecutionPolicy Bypass -File scripts\start_frontend.ps1 -CheckOnly`
+  - `python -m unittest discover -s tests -v`
+  - `python cli.py eval-frozen datasets\showcase_fintrace_v1 --output-root runtime\showcase_eval --llm-mode deepseek`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+  - `python scripts\create_deepseek_testsets.py`
+  - `python cli.py eval-frozen runtime\testsets\deepseek_missing_context --output-root runtime\testsets_eval\deepseek_deepseek_missing_context_v2 --llm-mode deepseek`
+- 复测结论：
+  - 启动脚本 `-CheckOnly` 通过，前端启动路径可用且不触发默认 Electron 打开方式。
+  - DeepSeek Showcase 冻结集：6 案，决策准确率 100%，字段准确率 100%，错误案件数 0。
+  - DeepSeek 专项测试集：`deepseek_showcase_clean`、`deepseek_missing_context`、`deepseek_invoice_visual` 修复后均为 100% 决策准确率、100% 字段准确率、0 错误。
+  - 全量回归三套冻结集继续保持 100% 决策准确率、100% 字段准确率、0 错误。
+  - 新增 helper 单测覆盖三类场景聚合、推荐对比组合和案件对比摘要，确保展示层后续迭代不破坏录屏叙事。
+
+## Round 14：前端数据集状态隔离与混批提示
+
+- 用户反馈：
+  - 明确使用 `datasets/showcase_fintrace_v1`，但页面表格出现 `FRZ-00001`，详情区又选中 `SHOW-TS-01`。
+  - `SHOW-TS-01` 页面显示 `R010_APPROVAL_INCOMPLETE`，与 Showcase 真实的 `R012_TIME_SPACE_CONFLICT` 不一致。
+- 归因：
+  - CLI 跑 Showcase 仍为 6 案 100% 准确，且 ERP 审批状态全为“已审批”，因此不是规则引擎或数据集问题。
+  - 问题来自前端会话状态不够隔离：旧批次表格、旧 selectbox 选择和当前 Showcase 结果可能在视觉上混在一起。
+- 修改内容：
+  - `fintrace/showcase.py` 新增数据集识别、case 前缀统计、一致性校验和批次敏感 widget 清理 helper。
+  - `streamlit_app.py` 新增“当前数据集”状态条，显示数据集、batch id、case 数、来源路径和运行时间。
+  - 新批次运行前清理筛选器、case 选择器、诊断选择器和案例对比选择器；关键 widget key 绑定当前 `active_result_id`。
+  - 输入 Showcase 本地路径并点击“运行自定义批次”时，自动识别为 Showcase 并设置正确 ground truth。
+  - 待处理案件池增加数据质量列和批次来源 caption；若出现 `FRZ`/`SHOW` 混合前缀或 Showcase 模式下非 `SHOW` case，直接提示重新加载。
+  - 案件详情增加命中规则 ID 和字段来源摘要，不必展开 JSON 即可确认规则链。
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['streamlit_app.py','fintrace/showcase.py','tests/test_fintrace_core.py']]"`
+  - `python cli.py eval-frozen datasets\showcase_fintrace_v1 --output-root runtime\showcase_eval`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+  - `git diff --check`
+- 复测结论：
+  - 单元测试：24/24 通过。
+  - Showcase 冻结集：6 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段准确率 100%，错误案件数 0。
+  - 内置冻结红队集：84 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段准确率 100%，错误案件数 0。
+  - Claude 红方冻结集：28 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段准确率 100%，错误案件数 0。
+  - `git diff --check` 通过，仅有既有 LF/CRLF 换行提示，无空白错误。
+  - 新增单测覆盖 Showcase 只包含 `SHOW-` case、路径识别、混批告警和 widget 状态清理。
+
+## Round 15：外展示界面去开发者化
+
+- 用户反馈：
+  - 主界面需要服务财务人员，而不是把录屏路线、示例数据集、DeepSeek 配置、红队测试等内部信息暴露给外部观众。
+  - 示例文件路径、启动方式、录屏步骤和回归命令应沉淀到 Markdown 文档，前端只保留极简操作指引。
+- 修改内容：
+  - 前端导航只保留 `批量审核`、`查原因`、`案例对比`，移除外展示导航中的 `测试结果`。
+  - 顶部标题区删除录屏、Showcase、DeepSeek 等内部话术，改为财务共享中心批量报销初审定位。
+  - `加载冻结 Showcase` 改为 `加载示例批次`，`运行自定义批次` 改为 `开始批量审核`，并从主界面移除随机红队按钮。
+  - 删除侧边栏 DeepSeek Key/Base URL/模型配置；前端默认使用结构化推理模式，未配置 Key 时沿用本地稳定判断回退。
+  - `当前数据集` 状态条改为 `当前批次`，只展示案件数、需复核数、拒绝/升级数和运行时间，不显示数据集名、Batch ID 或来源路径。
+  - `查原因` 中将 `运行链路`、`规则与本体`、`DeepSeek 门控` 等工程词改为 `处理过程`、`规则与背景信息`、`辅助分析校验`。
+  - `docs/SHOWCASE_SCRIPT.md` 改为内部外展示操作手册，记录桌面启动脚本、项目路径、示例数据集路径、录屏顺序、回归命令和模型默认行为。
+  - README 只保留外展示操作手册入口，不再在主页展开录屏细节、随机红队和 API Key 配置。
+- 验证命令：
+  - `python -m unittest discover -s tests -v`
+  - `python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['streamlit_app.py','fintrace/showcase.py','tests/test_fintrace_core.py']]"`
+  - `python cli.py eval-frozen datasets\showcase_fintrace_v1 --output-root runtime\showcase_eval`
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_regression.ps1`
+- 复测结论：
+  - 单元测试：24/24 通过。
+  - Showcase 冻结集：6 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段准确率 100%，错误案件数 0。
+  - 内置冻结红队集：84 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段准确率 100%，错误案件数 0。
+  - Claude 红方冻结集：28 案，决策准确率 100%，硬违规 Precision/Recall 100%，字段准确率 100%，错误案件数 0。

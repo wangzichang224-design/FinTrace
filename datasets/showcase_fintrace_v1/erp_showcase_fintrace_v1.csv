@@ -1,0 +1,7 @@
+reimbursement_id,employee_id,employee_name,department,cost_center,project_code,approver,approval_status,expense_date,expense_time,expense_type,amount,currency,city,vendor,vendor_tax_no,invoice_no,invoice_code,invoice_hash,invoice_type,client_id,client_name,has_original_invoice,description
+SHOW-TS-01,E777,周启明,华东销售部,CC-SALES-EAST,PJ-SHOWCASE-01,李娜,已审批,2026-05-20,09:15,餐饮,286.00,CNY,上海,上海陆家嘴商务餐厅,91310000SHOWTS01,INV-TS-SH-001,044001000001,HASH-SHOW-TS-01,增值税电子普通发票,C008,西域能源集团,true,上午上海客户早餐会
+SHOW-TS-02,E777,周启明,华东销售部,CC-SALES-EAST,PJ-SHOWCASE-01,李娜,已审批,2026-05-20,14:10,交通,168.00,CNY,乌鲁木齐,乌鲁木齐天山出租车,91650100SHOWTS02,INV-TS-XJ-002,044001000002,HASH-SHOW-TS-02,出租车电子发票,C008,西域能源集团,true,下午新疆客户打车拜访
+SHOW-SPLIT-01,E202,何雨晴,市场部,CC-MKT-01,PJ-SHOWCASE-02,陈涛,已审批,2026-05-21,19:10,餐饮,830.00,CNY,上海,上海星河商务餐饮有限公司,91310000SPLIT001,INV-SPLIT-A1,044001000101,HASH-SHOW-SPLIT-01,增值税电子普通发票,C001,华东战略客户,true,客户招待晚餐第一张
+SHOW-SPLIT-02,E202,何雨晴,市场部,CC-MKT-01,PJ-SHOWCASE-02,陈涛,已审批,2026-05-21,19:18,餐饮,840.00,CNY,上海,上海星河商务餐饮有限公司,91310000SPLIT001,INV-SPLIT-B9,044001000102,HASH-SHOW-SPLIT-02,增值税电子普通发票,C001,华东战略客户,true,客户招待晚餐第二张
+SHOW-SPLIT-03,E202,何雨晴,市场部,CC-MKT-01,PJ-SHOWCASE-02,陈涛,已审批,2026-05-21,19:26,餐饮,850.00,CNY,上海,上海星河商务餐饮有限公司,91310000SPLIT001,INV-SPLIT-Q7,044001000103,HASH-SHOW-SPLIT-03,增值税电子普通发票,C001,华东战略客户,true,客户招待晚餐第三张
+SHOW-MIS-01,E315,林子墨,解决方案部,CC-SOL-01,PJ-SHOWCASE-03,王琪,已审批,2026-05-22,15:30,客户招待,2999.00,CNY,深圳,深圳湾优选电子贸易有限公司,91440300SHOWMIS1,INV-MIS-SWITCH-01,044001000201,HASH-SHOW-MIS-01,增值税电子普通发票,C009,南方重点客户,true,拜访客户C009技术交流

@@ -1,0 +1,102 @@
+{
+  "dataset": "showcase_fintrace_v1",
+  "source": "handcrafted_showcase_pressure_test",
+  "case_count": 6,
+  "label_notes": [
+    "Showcase 数据用于录屏展示，不声称来自真实企业。",
+    "三个重点风险：同日远距离时空冲突、同一晚同供应商拆单规避、客户拜访事由与附件商品实质不一致。",
+    "全部标注为 MANUAL_REVIEW，因为这些属于上下文风险信号，需要财务核验行程、业务实质或拆单背景。"
+  ],
+  "labels": [
+    {
+      "case_id": "SHOW-TS-01",
+      "scenario": "time_space_conflict",
+      "risk_type": "same_employee_same_day_distant_city_no_flight",
+      "expected_decision": "MANUAL_REVIEW",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 286.0,
+        "employee_id": "E777",
+        "invoice_no": "INV-TS-SH-001",
+        "expense_type": "餐饮"
+      },
+      "expected_reason": "同一员工上午上海餐饮、下午乌鲁木齐打车，批次内没有机票/航班证据，应转人工核验行程真实性。"
+    },
+    {
+      "case_id": "SHOW-TS-02",
+      "scenario": "time_space_conflict",
+      "risk_type": "same_employee_same_day_distant_city_no_flight",
+      "expected_decision": "MANUAL_REVIEW",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 168.0,
+        "employee_id": "E777",
+        "invoice_no": "INV-TS-XJ-002",
+        "expense_type": "交通"
+      },
+      "expected_reason": "同一员工同日远距离城市消费且缺少航班证据，应转人工核验。"
+    },
+    {
+      "case_id": "SHOW-SPLIT-01",
+      "scenario": "split_invoice_evasion",
+      "risk_type": "same_employee_vendor_date_category_split_total_over_threshold",
+      "expected_decision": "MANUAL_REVIEW",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 830.0,
+        "employee_id": "E202",
+        "invoice_no": "INV-SPLIT-A1",
+        "expense_type": "餐饮"
+      },
+      "expected_reason": "同员工、同供应商、同日期、同费用类型的三张餐饮票合计 2520 元，超过分组阈值，应核验是否拆单规避。"
+    },
+    {
+      "case_id": "SHOW-SPLIT-02",
+      "scenario": "split_invoice_evasion",
+      "risk_type": "same_employee_vendor_date_category_split_total_over_threshold",
+      "expected_decision": "MANUAL_REVIEW",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 840.0,
+        "employee_id": "E202",
+        "invoice_no": "INV-SPLIT-B9",
+        "expense_type": "餐饮"
+      },
+      "expected_reason": "同一晚客户招待被拆成多张低额发票，应转人工复核业务背景。"
+    },
+    {
+      "case_id": "SHOW-SPLIT-03",
+      "scenario": "split_invoice_evasion",
+      "risk_type": "same_employee_vendor_date_category_split_total_over_threshold",
+      "expected_decision": "MANUAL_REVIEW",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 850.0,
+        "employee_id": "E202",
+        "invoice_no": "INV-SPLIT-Q7",
+        "expense_type": "餐饮"
+      },
+      "expected_reason": "同一消费拆分开票，应转人工核验。"
+    },
+    {
+      "case_id": "SHOW-MIS-01",
+      "scenario": "purpose_attachment_mismatch",
+      "risk_type": "client_visit_reason_but_consumer_goods_attachment",
+      "expected_decision": "MANUAL_REVIEW",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 2999.0,
+        "employee_id": "E315",
+        "invoice_no": "INV-MIS-SWITCH-01",
+        "expense_type": "客户招待"
+      },
+      "expected_reason": "报销事由为客户拜访，但附件商品名称包含任天堂 Switch、礼品卡等非业务消费，应核验业务实质。"
+    }
+  ]
+}
