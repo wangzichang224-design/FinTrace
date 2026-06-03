@@ -1,179 +1,247 @@
 # FinTrace
 
-FinTrace 是一个中文企业级批量费控审查 Agent。评审整改后，它的产品边界更清楚：
+<p align="center">
+  <img src="docs/assets/fintrace-logo.png" alt="FinTrace 通用财务智能助手" width="860">
+</p>
 
-- **v0.1 MVP 主链路**：`CSV/XLSX 批量导入 -> 字段溯源 -> 本地稳定模型/规则审查 -> 可解释结果导出`
-- **v0.2 展示与增强能力**：面向财务人员的 Streamlit 审核台、DeepSeek 结构化审计底稿、红蓝评测、高仿真演示数据
+<p align="center">
+  面向企业财务场景的可解释智能助手，从批量费控审查出发，逐步扩展到通用财务运营、审计辅助与风险治理。
+</p>
 
-FinTrace 不试图一开始替代 ERP 或财务终审。它先解决批量报销初筛中最痛的两件事：风险先筛出来，错误能追回去。
+---
+
+## 项目定位
+
+FinTrace 当前是一个中文企业级批量费控审查 Agent。它的第一阶段目标不是替代 ERP、OA 或财务终审，而是先解决财务审核中最痛的两个问题：
+
+- **风险先筛出来**：批量导入报销数据后，自动识别重复票、缺附件、黑名单供应商、金额超标、拆票、跨期、OCR 金额冲突等风险。
+- **错误能追回去**：每个字段、规则、上下文、推理和最终路由都保留溯源，方便财务人员、审计人员和产品团队定位问题。
+
+FinTrace 的长期方向是 **通用财务智能助手**。费控审查只是第一个可落地入口，后续可继续扩展到：
+
+- 费用政策问答与规则配置
+- 发票、合同、付款、预算的交叉校验
+- 月结异常解释与财务运营诊断
+- 供应商、员工、项目维度风险画像
+- 审计底稿生成与内控证据链沉淀
+
+---
+
+## 核心能力
+
+| 能力 | 说明 |
+|---|---|
+| 批量接入 | 支持 CSV、XLSX、本地目录和 ZIP 批量导入，自动扫描文件清单 |
+| 案件归并 | 将 ERP 行、发票 OCR、审批聊天、PDF/图片附件归并为单个报销案件 |
+| 字段溯源 | 对金额、日期、发票号、供应商、员工、费用类型等字段记录来源和置信度 |
+| 规则审查 | 区分阻断控制与上下文风险信号，高确定性风险不允许大模型覆盖 |
+| 企业本体 | 引入节假日、客户等级、员工信用、供应商风险、费用基准等上下文 |
+| 受控推理 | 本地稳定模型优先，可选 DeepSeek 生成结构化审计判断，并通过门控约束 |
+| 红蓝评测 | 支持动态红队数据、冻结数据集回归、字段准确率和风控指标评估 |
+| 人工反馈 | 人工复核通过的受控例外可沉淀为记忆，用于后续相似案件辅助判断 |
+
+---
+
+## 精简流程图
+
+```mermaid
+flowchart LR
+    A["输入材料<br/>ERP 表格、发票文本、审批记录、附件"] --> B["批量接入<br/>扫描文件、生成清单、计算哈希"]
+    B --> C["案件归并<br/>报销单与附件自动匹配"]
+    C --> D["字段抽取<br/>金额、日期、发票号、供应商、员工"]
+    D --> E["字段溯源<br/>记录来源文件、行号、片段和置信度"]
+    E --> F["规则审查<br/>阻断控制与风险信号"]
+    F --> G{"是否命中硬性风险？"}
+    G -->|是| H["直接拒绝或反舞弊升级<br/>大模型不可覆盖"]
+    G -->|否| I["补充企业上下文<br/>节假日、客户、员工、供应商、费用基准"]
+    I --> J["受控推理<br/>本地稳定模型优先，可选大模型增强"]
+    J --> K["输出结论<br/>通过、柔性通过、人工复核、拒绝、升级"]
+    H --> L["审计轨迹落盘<br/>字段、规则、上下文、推理、错误"]
+    K --> L
+    L --> M["财务审核台与评测报告<br/>复核队列、错误定位、指标回归"]
+```
+
+---
+
+## 系统架构
+
+```mermaid
+flowchart TB
+    subgraph BG["批量层：批次调度"]
+        B1["批量接入"] --> B2["案件装配"]
+        B2 --> B3["单案调度"]
+        B3 --> B4["指标聚合"]
+        B4 --> B5["轨迹导出"]
+    end
+
+    subgraph CG["单案层：案件状态机"]
+        C1["字段解析"] --> C2["规则审查"]
+        C2 --> C3{"条件路由"}
+        C3 -->|硬性拒绝或升级| C6["最终决策"]
+        C3 -->|需要上下文| C4["企业本体"]
+        C4 --> C5["受控推理"]
+        C5 --> C6
+    end
+
+    B3 --> C1
+    C6 --> B4
+```
+
+---
+
+## 决策边界
+
+FinTrace 不把大模型当作最终裁判，而是把它放在受控链路中：
+
+- **阻断控制优先**：缺原件、精确重复票、黑名单供应商等高确定性风险直接拒绝或升级。
+- **风险信号转人工**：拆票、跨期、相似票号、OCR 金额冲突等需要业务解释的情况进入人工复核。
+- **本地模型兜底**：无大模型配置时仍可稳定运行，适合企业离线演示和安全验证。
+- **大模型受约束**：可选 DeepSeek 只做结构化审计判断，不能覆盖硬性风控底线。
+- **全链路可追溯**：每个节点输出追踪事件，支持错误定位和回归评测。
 
 ---
 
 ## 快速开始
 
-### 方式一：Docker（推荐，跨平台）
+### 一、Docker 启动
 
 ```bash
-# 1. 构建并启动
 docker compose up fintrace-frontend
-
-# 2. 打开浏览器访问 http://localhost:8509
-# 3. 在界面中点击「加载示例批次」
 ```
 
-其他 Docker 命令：
+启动后访问：
 
-```bash
-# 运行评测
-docker compose up fintrace-eval
-
-# 运行单元测试
-docker compose up fintrace-test
-
-# CLI 模式（接收子命令）
-docker compose run --rm fintrace-cli --help
-docker compose run --rm fintrace-cli eval --n 80 --seed 42
-
-# 仅构建（不启动）
-docker compose build
+```text
+http://localhost:8509
 ```
 
-### 方式二：Windows 原生
+在界面中点击「加载示例批次」即可查看审核台、案件详情、字段溯源和评测面板。
+
+### 二、Windows 启动
 
 ```batch
-:: 首次设置
 setup.bat
-
-:: 启动 Web 界面
 Start_FinTrace_Frontend.cmd
 ```
 
-### 方式三：Linux / macOS 原生
+### 三、本地命令行
 
 ```bash
-# 首次设置
-make setup
-source .venv/bin/activate
-
-# 启动 Streamlit
-streamlit run streamlit_app.py --server.port=8509
-
-# 或使用 Makefile
-make docker  # Docker 方式
+python cli.py run datasets/fintrace-redteam-v1 --output-root runtime/batches
 ```
 
 ---
 
-## 配置
+## 评测方式
 
-复制 `.env.example` 为 `.env`，填入可选配置：
+FinTrace 的评测不是只看单个演示样例，而是围绕风控工作流做回归验证。
+
+### 动态红队评测
+
+动态生成高仿真 ERP 报销数据、发票 OCR、审批聊天和标准答案，然后运行完整批量审查链路。
 
 ```bash
-cp .env.example .env
+python cli.py eval --output-root runtime/eval --n 80 --seed 42
 ```
 
-| 环境变量 | 必需？ | 说明 |
-|---------|--------|------|
-| `DEEPSEEK_API_KEY` | 否 | 留空则只使用本地稳定模型（推荐初次运行） |
-| `DEEPSEEK_BASE_URL` | 否 | 默认 https://api.deepseek.com/v1 |
-| `DEEPSEEK_MODEL` | 否 | 默认 deepseek-chat |
-| `LANGSMITH_API_KEY` | 否 | 可选，用于 LangSmith 追踪 |
-| `FINTRACE_APPROVAL_MEMORY_PATH` | 否 | 人工反馈记忆存储路径 |
+### 冻结数据集回归
 
----
-
-## 运行评测
+读取固定数据集和标准答案，用于版本迭代后的稳定回归。
 
 ```bash
-# 单元测试
-python -m unittest discover -s tests -v
-
-# 动态红队评测（n=80，seed=42）
-python cli.py eval --output-root runtime/eval_review_fix --n 500 --seed 42
-
-# 冻结集回归
 python cli.py eval-frozen datasets/fintrace-redteam-v1 --output-root runtime/eval_frozen
-python cli.py eval-frozen datasets/showcase_fintrace_v1 --output-root runtime/showcase_eval
-
-# 或使用 Makefile
-make quickcheck          # AST + 单元测试
-make regression          # 全量回归
-make docker-test         # Docker 环境下的测试
-make docker-eval         # Docker 环境下的评测
 ```
 
-### 目标指标
+### 核心指标
 
-| 指标 | 目标 |
-|------|------|
-| 硬违规 Recall | >= 99% |
-| 拒绝/升级 Precision | >= 90% |
-| 关键字段抽取准确率 | >= 95% |
-| 柔性放行准确率 | >= 85% |
-| 人工复核比例 | 可解释，不靠误杀堆高风控 |
+| 指标 | 含义 |
+|---|---|
+| 决策准确率 | 系统最终结论与标准答案的一致性 |
+| 硬违规召回率 | 应拒绝或升级的高风险案件是否被拦住 |
+| 拒绝/升级精确率 | 被拦截案件中真正高风险的比例 |
+| 硬违规综合分 | 精确率和召回率的综合表现 |
+| 字段准确率 | 金额、日期、发票号、供应商等关键字段抽取质量 |
+| 场景拆解 | 按重复票、拆票、跨期、金额冲突等场景分析错误 |
 
 ---
 
 ## 运行产物
 
-每次批处理都会写入 `runtime/batches/<batch_id>/`：
+每次批处理都会写入 `runtime/batches/<批次编号>/`：
 
-- `manifest.json` — 文件清单
-- `case_index.json` — 案件索引
-- `batch_metrics.json` — 聚合指标
-- `error_registry.json` — 错误注册表
-- `batch_result.json` — 完整批处理结果
-- `traces.jsonl` — 全链路追踪事件
-- `cases/<case_id>/case_result.json` — 单案结果
+| 文件 | 说明 |
+|---|---|
+| `manifest.json` | 文件清单 |
+| `case_index.json` | 案件索引 |
+| `batch_metrics.json` | 批次聚合指标 |
+| `error_registry.json` | 错误注册表 |
+| `batch_result.json` | 完整批处理结果 |
+| `traces.jsonl` | 全链路追踪事件 |
+| `cases/<案件编号>/case_result.json` | 单案审查结果 |
 
-如果结论不准，可以沿着字段、规则、本体、推理、路由和错误定位台快速判断问题来自哪里。
-
----
-
-## 文档入口
-
-- [MVP 范围说明](docs/MVP_SCOPE.md)
-- [流程图](docs/FINTRACE_FLOW.md)
-- [企业本体冷启动方案](docs/ONTOLOGY_COLD_START.md)
-- [企业数据对接契约](docs/ENTERPRISE_INTEGRATION.md)
-- [企业 ERP 费控对标与智能改进](docs/ERP_EXPENSE_BENCHMARK.md)
-- [红蓝对抗隔离说明](docs/RED_BLUE_ISOLATION.md)
-- [Claude 红方整改报告](docs/RED_ATTACK_V1_REMEDIATION_REPORT.md)
-- [路线图](docs/ROADMAP.md)
-- [外展示操作手册](docs/SHOWCASE_SCRIPT.md)
-- [架构决策记录](docs/ARCHITECTURE_DECISIONS.md)
-- [迭代记录](docs/ITERATION_LOG.md)
-- [代码审核报告](docs/CODE_REVIEW_REPORT.md)
+如果系统判断不符合预期，可以沿着字段、规则、本体、推理、路由和错误注册表定位问题来源。
 
 ---
 
 ## 项目结构
 
-```
+```text
 FinTrace/
-├── fintrace/            # 核心 Python 包
-│   ├── pipeline.py      # BatchGraph 批量调度
-│   ├── case_graph.py    # CaseGraph 单案状态机
-│   ├── parser.py        # 字段抽取与溯源
-│   ├── policies.py      # 14 条费控规则
-│   ├── reasoning.py     # 本地稳定模型 + DeepSeek 门控
-│   ├── ontology.py      # 企业本体（节假日/客户/员工/供应商）
-│   ├── feedback.py      # 人工反馈学习
-│   ├── evaluator.py     # 评测框架
-│   ├── redteam.py       # 红队数据生成
-│   ├── showcase.py      # 展示逻辑
-│   ├── insights.py      # 业务诊断
-│   └── tracing.py       # 全链路追踪
-├── streamlit_app.py     # Streamlit Web 前端
-├── cli.py               # CLI 入口
-├── redteam/             # 独立红队生成器（无 fintrace 依赖）
-├── datasets/            # 冻结评测数据集
-├── docs/                # 文档
-├── runtime/             # 运行时产物（gitignore）
-├── tests/               # 单元测试
-├── Dockerfile           # Docker 构建
-├── docker-compose.yml   # Docker Compose 编排
-├── pyproject.toml       # Python 项目元数据
-├── Makefile             # 自动化编排
-└── setup.bat            # Windows 环境设置
+├── fintrace/                  核心 Python 包
+│   ├── pipeline.py            批量调度状态机
+│   ├── case_graph.py          单案审查状态机
+│   ├── ingestion.py           文件接入、清单扫描、案件归并
+│   ├── parser.py              字段抽取与字段溯源
+│   ├── policies.py            费控规则与风险路由
+│   ├── ontology.py            企业本体上下文
+│   ├── reasoning.py           本地稳定模型与大模型门控
+│   ├── feedback.py            人工反馈记忆
+│   ├── evaluator.py           评测框架
+│   ├── redteam.py             红队数据生成
+│   ├── insights.py            业务诊断与优化建议
+│   ├── showcase.py            展示与案例对比
+│   └── tracing.py             全链路追踪事件
+├── streamlit_app.py           财务审核台
+├── cli.py                     命令行入口
+├── datasets/                  冻结评测数据集
+├── redteam/                   独立红队生成器
+├── docs/                      项目文档与图片资产
+├── runtime/                   运行产物目录
+├── tests/                     单元测试
+├── Dockerfile                 镜像构建
+├── docker-compose.yml         容器编排
+├── pyproject.toml             项目元数据
+└── Makefile                   自动化命令
 ```
+
+---
+
+## 文档入口
+
+- [流程图](docs/FINTRACE_FLOW.md)
+- [最小可行范围说明](docs/MVP_SCOPE.md)
+- [企业数据对接契约](docs/ENTERPRISE_INTEGRATION.md)
+- [企业本体冷启动方案](docs/ONTOLOGY_COLD_START.md)
+- [企业费用系统对标与改进](docs/ERP_EXPENSE_BENCHMARK.md)
+- [红蓝对抗隔离说明](docs/RED_BLUE_ISOLATION.md)
+- [开源评测集成方案](docs/OPEN_SOURCE_EVAL_INTEGRATION.md)
+- [架构决策记录](docs/ARCHITECTURE_DECISIONS.md)
+- [路线图](docs/ROADMAP.md)
+
+---
+
+## 下一步规划
+
+- 增加差旅、招待、办公采购、会议、咨询服务等费用规则包。
+- 建设规则配置中心，让阈值、审批层级和附件要求可配置。
+- 增强 ERP、OA、费控系统对接设计，支持审批回写和审计日志同步。
+- 增加业务指标看板，展示复核量、误报率、采纳率和节省时间。
+- 强化真实财务场景评测，引入脱敏历史单据离线回放和人工复核对照。
+
+---
+
+## 设计原则
+
+FinTrace 的核心原则是：**可信辅助，不做黑箱终审**。
+
+在财务、审计和内控场景里，AI 的价值不是替人承担责任，而是帮助人更快发现风险、更清楚解释证据、更稳定地迭代规则。
