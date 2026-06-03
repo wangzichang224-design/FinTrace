@@ -434,6 +434,46 @@ def render_case_detail(case: dict) -> None:
     c4.metric("发票号", fields.get("invoice_no", ""))
     st.caption(f"命中规则：{rule_id_summary(case)}")
 
+    # ── 原始材料（结论卡下方直接展示，不折叠） ──
+    st.markdown("##### 原始材料")
+    inv_artifacts = [a for a in case.get("raw_artifacts", []) if "发票" in a.get("artifact_type", "") or "OCR" in str(a.get("path", ""))]
+    chat_artifacts = [a for a in case.get("raw_artifacts", []) if "审批" in str(a.get("path", "")) or "chat" in a.get("artifact_type", "")]
+    vis_artifacts = [a for a in case.get("raw_artifacts", []) if a.get("artifact_type") in {"image_attachment", "pdf_attachment"}]
+
+    # 发票 OCR 文本
+    if inv_artifacts:
+        for a in inv_artifacts:
+            with st.expander(f"📄 发票 OCR — {Path(a.get('path', '')).name}", expanded=False):
+                st.text(a.get("text", "")[:2000])
+    elif any("发票OCR" in str(a.get("path", "")) for a in case.get("raw_artifacts", [])):
+        pass  # 已覆盖
+    else:
+        for a in case.get("raw_artifacts", []):
+            if a.get("artifact_type") == "erp_row":
+                continue
+            text = a.get("text", "").strip()
+            if text:
+                with st.expander(f"📄 {Path(a.get('path', '')).name}", expanded=False):
+                    st.text(text[:2000])
+
+    # 审批聊天记录
+    if chat_artifacts:
+        for a in chat_artifacts:
+            with st.expander(f"💬 审批聊天 — {Path(a.get('path', '')).name}", expanded=True):
+                st.text(a.get("text", "")[:2000])
+    else:
+        for a in case.get("raw_artifacts", []):
+            if "审批" in str(a.get("path", "")):
+                with st.expander(f"💬 审批聊天 — {Path(a.get('path', '')).name}", expanded=True):
+                    st.text(a.get("text", "")[:2000])
+
+    # 发票截图（若有）
+    if vis_artifacts:
+        for a in vis_artifacts:
+            p = Path(a.get("path", ""))
+            if p.exists():
+                st.image(str(p), caption=p.name, width=400)
+
     # ── 技术细节（折叠） ──
     with st.expander("🔬 查看技术细节（处理过程 / 规则命中 / 字段溯源）", expanded=False):
         tech_tabs = st.tabs(["处理过程", "规则与背景信息", "字段溯源"])
