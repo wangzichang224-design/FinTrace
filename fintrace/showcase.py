@@ -156,6 +156,18 @@ def case_prefix_summary(result: dict[str, Any]) -> dict[str, int]:
 def validate_active_result_consistency(result: dict[str, Any], active_dataset: str | None) -> list[str]:
     warnings: list[str] = []
     prefixes = case_prefix_summary(result)
+
+    # 对 showcase 数据集，允许 SHOW-* 和 NOR-* 两种前缀同时存在
+    if active_dataset == SHOWCASE_DATASET_NAME:
+        allowed = {"SHOW", "NOR"}
+        unexpected = {p: c for p, c in prefixes.items() if p not in allowed}
+        if unexpected:
+            warnings.append(
+                f"Showcase 数据集应只包含 SHOW- 和 NOR- 前缀的 case，但当前批次发现 {unexpected}。"
+            )
+        return warnings
+
+    # 其他数据集检查精确前缀匹配
     expected_prefix = DATASET_EXPECTED_PREFIX.get(active_dataset or "")
     if expected_prefix:
         unexpected = {prefix: count for prefix, count in prefixes.items() if prefix != expected_prefix}
@@ -165,10 +177,6 @@ def validate_active_result_consistency(result: dict[str, Any], active_dataset: s
             )
     if len(prefixes) > 1:
         warnings.append(f"当前批次同时出现多个 case 前缀 {prefixes}，疑似混合批次或旧状态残留。")
-    if active_dataset == SHOWCASE_DATASET_NAME:
-        case_count = len(result.get("case_results", []))
-        if case_count != 6:
-            warnings.append(f"Showcase 演示集应为 6 个 case，当前为 {case_count} 个。")
     return warnings
 
 

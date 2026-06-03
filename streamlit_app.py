@@ -292,7 +292,7 @@ def render_toolbar() -> None:
         max_workers = st.session_state.get("_eval_max_workers", DEFAULT_MAX_WORKERS)
         with st.spinner("正在读取示例批次并运行审核..."):
             batch = run_showcase_batch(llm_mode=llm_mode, max_workers=max_workers)
-            register_batch_result(batch, [str(SHOWCASE_DATASET)], {"dataset": "showcase_fintrace_v1", "label": "Showcase 冻结演示集", "expected_prefix": "SHOW"})
+            register_batch_result(batch, [str(SHOWCASE_DATASET)], {"dataset": "showcase_fintrace_v1", "label": "Showcase 冻结演示集"})
         st.rerun()
 
     if run_clicked:
@@ -766,12 +766,12 @@ def render_iteration_log() -> None:
 
 def render_prefix_warnings(result: dict) -> None:
     prefixes = case_prefix_summary(result)
+    active_dataset = st.session_state.get("active_dataset")
+    # showcase 数据集允许 SHOW + NOR 两种前缀，不做警告
+    if active_dataset == "showcase_fintrace_v1":
+        return
     if len(prefixes) > 1:
         st.warning("当前批次数据异常，请重新加载示例批次或重新运行审核。")
-    if st.session_state.get("active_dataset") == "showcase_fintrace_v1":
-        non_show = {prefix: count for prefix, count in prefixes.items() if prefix != "SHOW"}
-        if non_show:
-            st.error("当前批次数据异常，请重新加载示例批次或重新运行审核。")
 
 
 def review_row_quality(row: pd.Series) -> str:
