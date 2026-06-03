@@ -323,43 +323,13 @@ def render_overview(result: dict) -> None:
     write_frontend_diagnostics(result, insights)
     summary = insights["summary"]
 
-    cols = st.columns(6)
+    cols = st.columns(5)
     cols[0].metric("案件总数", summary["案件总数"])
     cols[1].metric("自动通过", summary["通过"])
     cols[2].metric("人工复核", summary["人工复核"])
     cols[3].metric("拒绝/升级", summary["阻断/升级"])
     cols[4].metric("失败案件", summary["失败案件"])
-    cols[5].metric("运行时间", st.session_state.get("active_run_started_at") or "当前会话")
     st.caption("单笔异常会留痕并进入人工复核，不影响其他单据继续审核。")
-
-    # 数据集一致性警告
-    dataset = st.session_state.get("active_dataset") or detect_dataset_identity(
-        st.session_state.get("active_source_paths", []), result
-    )["dataset"]
-    warnings = st.session_state.get("dataset_consistency_warnings") or validate_active_result_consistency(result, dataset)
-    for w in warnings:
-        st.error(w)
-
-    # 风险场景（仅 showcase）
-    if st.session_state.get("active_dataset") == "showcase_fintrace_v1":
-        ground_truth_path = st.session_state.get("showcase_ground_truth_path")
-        storyline = build_showcase_storyline(result, ground_truth_path)
-        if storyline.get("scenarios"):
-            st.markdown("#### 风险场景")
-            story_df = pd.DataFrame(storyline["scenarios"])
-            st.dataframe(
-                story_df, width="stretch", hide_index=True,
-                column_order=["场景", "案件数", "命中正确", "代表案件", "展示故事", "复核重点"],
-            )
-
-    # 最值得先看的问题
-    visible_issues = [
-        row for row in insights.get("top_issues", [])
-        if row.get("类型") in FINANCE_VISIBLE_ISSUE_TYPES
-    ]
-    if visible_issues:
-        st.markdown("#### 本批次最值得先看的问题")
-        st.dataframe(pd.DataFrame(visible_issues).head(5), width="stretch", hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -398,10 +368,9 @@ def render_case_table(result: dict) -> None:
         "风险", sorted(queue_df["风险"].dropna().unique()),
         placeholder="全部风险", key=f"filter_r_{active_key}", label_visibility="collapsed",
     )
-    # 第三列放一个简化的焦点筛选
-    focus_filter = f3.multiselect(
-        "问题类型", sorted(queue_df["诊断焦点"].dropna().unique()),
-        placeholder="问题类型", key=f"filter_f_{active_key}", label_visibility="collapsed",
+    reason_filter = f3.multiselect(
+        "复核原因", sorted(queue_df["不通过/复核原因"].dropna().unique()),
+        placeholder="复核原因", key=f"filter_reason_{active_key}", label_visibility="collapsed",
     )
 
     view = queue_df.copy()
@@ -409,8 +378,8 @@ def render_case_table(result: dict) -> None:
         view = view[view["决策"].isin(decision_filter)]
     if risk_filter:
         view = view[view["风险"].isin(risk_filter)]
-    if focus_filter:
-        view = view[view["诊断焦点"].isin(focus_filter)]
+    if reason_filter:
+        view = view[view["不通过/复核原因"].isin(reason_filter)]
     if search_word:
         view = view[view.apply(lambda row: search_word in " ".join(map(str, row.values)), axis=1)]
 
@@ -463,9 +432,9 @@ def render_case_detail(case: dict) -> None:
     c2.metric("费用类型", fields.get("expense_type", ""))
     c3.metric("供应商", fields.get("vendor", ""))
     c4.metric("发票号", fields.get("invoice_no", ""))
-    st.caption(f"命中规则：{rule_id_summary(case)} | 字段来源：{field_source_summary(case)} | 票据附件：{invoice_attachment_summary(case)}")
+    st.caption(f"命中规则：{rule_id_summary(case)}")
 
-    # ── 技术细节（折叠，合并原 Tab2 的三个面板） ──
+    # ── 技术细节（折叠） ──
     with st.expander("🔬 查看技术细节（处理过程 / 规则命中 / 字段溯源）", expanded=False):
         tech_tabs = st.tabs(["处理过程", "规则与背景信息", "字段溯源"])
 
@@ -475,8 +444,6 @@ def render_case_detail(case: dict) -> None:
                 render_trace_event(event)
             st.markdown("##### 定位建议")
             st.info(debug_recommendation(case))
-            st.markdown("##### 结构化审计底稿")
-            st.json(case.get("reasoning_trace", {}))
 
         with tech_tabs[1]:
             st.markdown("##### 命中控制 / 风险信号")
