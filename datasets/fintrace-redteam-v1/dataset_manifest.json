@@ -1,8 +1,0 @@
-{
-  "dataset": "fintrace-redteam-v1-frozen",
-  "seed": 20260529,
-  "case_count": 84,
-  "erp_path": "erp_费控报销冻结集.csv",
-  "ground_truth_path": "ground_truth.json",
-  "freeze_rule": "评测时只读该目录，不重新生成数据；更新标注必须升版本。"
-}

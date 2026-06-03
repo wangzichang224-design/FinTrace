@@ -1,7 +1,0 @@
-__pycache__/
-*.pyc
-.pytest_cache/
-.streamlit/secrets.toml
-runtime/
-.env
-.env.local
