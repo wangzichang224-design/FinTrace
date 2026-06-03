@@ -1,0 +1,85 @@
+{
+  "expense_limits": {
+    "hotel": 3000.0,
+    "住宿": 3000.0,
+    "meal": 2000.0,
+    "餐饮": 2000.0,
+    "transport": 8000.0,
+    "交通": 8000.0,
+    "client_entertainment": 5000.0,
+    "客户招待": 5000.0,
+    "office": 1500.0,
+    "办公": 1500.0
+  },
+  "blacklisted_vendor_tokens": [
+    "黑名单",
+    "phantom",
+    "空壳",
+    "高危供应商",
+    "异常咨询"
+  ],
+  "approval_complete_statuses": [
+    "已审批",
+    "审批通过",
+    "已批准",
+    "approved",
+    "complete",
+    "completed"
+  ],
+  "approval_incomplete_statuses": [
+    "",
+    "未审批",
+    "未提交",
+    "审批中",
+    "待审批",
+    "驳回",
+    "已驳回",
+    "拒绝",
+    "pending",
+    "rejected",
+    "draft",
+    "in_review",
+    "submitted"
+  ],
+  "cold_start": {
+    "micro_overshoot_ratio": 0.05,
+    "hard_reject_overshoot_ratio": 0.5,
+    "strategic_client_priorities": ["S", "A"],
+    "bulk_procurement_keywords": [
+      "批量采购",
+      "季度办公",
+      "部门采购",
+      "办公用品批量",
+      "集中采购"
+    ],
+    "bulk_procurement_limit_multiplier": 3.0,
+    "service_procurement_keywords": [
+      "咨询",
+      "调研",
+      "报告采购",
+      "服务采购",
+      "市场调研",
+      "验收报告"
+    ],
+    "service_procurement_manual_review_multiplier": 3.0
+  },
+  "showcase_risk_keywords": {
+    "business_purpose_keywords": [
+      "客户拜访",
+      "拜访客户",
+      "客户沟通",
+      "客户交流",
+      "商务拜访",
+      "业务拜访"
+    ],
+    "non_business_item_keywords": [
+      "任天堂",
+      "switch",
+      "游戏机",
+      "礼品卡",
+      "购物卡",
+      "预付卡",
+      "点卡"
+    ]
+  }
+}
