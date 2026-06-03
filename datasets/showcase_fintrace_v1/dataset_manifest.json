@@ -1,7 +1,7 @@
 {
   "dataset": "showcase_fintrace_v1",
   "purpose": "1-2分钟视频 Showcase 固定演示集，含可视化模拟票据",
-  "case_count": 6,
+  "case_count": 100,
   "scenario_count": 3,
   "erp_path": "erp_showcase_fintrace_v1.csv",
   "ground_truth_path": "ground_truth.json",
@@ -13,5 +13,8 @@
   ],
   "visual_invoice_dir": "visual_invoices",
   "visual_invoice_count": 6,
-  "visual_invoice_note": "PNG 模拟票据仅用于产品演示，不具备税务效力；OCR 文本仍作为解析兜底。"
+  "visual_invoice_note": "PNG 模拟票据仅用于产品演示，不具备税务效力；OCR 文本仍作为解析兜底。",
+  "normal_case_count": 94,
+  "showcase_case_count": 6,
+  "expansion_note": "94 个正常 case 仅含 OCR 文本和审批聊天，不含可视化发票截图。"
 }

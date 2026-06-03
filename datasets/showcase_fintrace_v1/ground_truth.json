@@ -1,11 +1,12 @@
 {
   "dataset": "showcase_fintrace_v1",
-  "source": "handcrafted_showcase_pressure_test",
-  "case_count": 6,
+  "source": "expanded_from_6_to_100",
+  "case_count": 100,
   "label_notes": [
-    "Showcase 数据用于录屏展示，不声称来自真实企业。",
-    "三个重点风险：同日远距离时空冲突、同一晚同供应商拆单规避、客户拜访事由与附件商品实质不一致。",
-    "全部标注为 MANUAL_REVIEW，因为这些属于上下文风险信号，需要财务核验行程、业务实质或拆单背景。"
+    "Showcase 数据已从 6 个扩增至 100 个 case。",
+    "原有 6 个 SHOW-* 场景 case 保持不变，全部标注为 MANUAL_REVIEW。",
+    "新增 94 个 NOR-* 正常报销 case，全部标注为 APPROVE。",
+    "94 个正常 case 只包含 OCR 文本和审批聊天，不含可视化发票截图。"
   ],
   "labels": [
     {
@@ -97,6 +98,1322 @@
         "expense_type": "客户招待"
       },
       "expected_reason": "报销事由为客户拜访，但附件商品名称包含任天堂 Switch、礼品卡等非业务消费，应核验业务实质。"
+    },
+    {
+      "case_id": "NOR-00001",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1002.41,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00001",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00002",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 428.03,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00002",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00003",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 702.25,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00003",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00004",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 817.39,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00004",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00005",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 424.21,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00005",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00006",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1083.43,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00006",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00007",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1440.95,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00007",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00008",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 253.47,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00008",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00009",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1233.84,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00009",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00010",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1462.9,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00010",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00011",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1264.58,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00011",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00012",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 916.75,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00012",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00013",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 434.5,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00013",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00014",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 503.6,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00014",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00015",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 630.85,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00015",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00016",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 960.6,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00016",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00017",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 345.5,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00017",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00018",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1064.77,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00018",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00019",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 436.09,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00019",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00020",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 489.48,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00020",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00021",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1024.51,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00021",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00022",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 485.53,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00022",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00023",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1359.0,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00023",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00024",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 823.15,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00024",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00025",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 985.88,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00025",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00026",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 646.63,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00026",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00027",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1460.09,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00027",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00028",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1114.6,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00028",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00029",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 273.94,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00029",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00030",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1436.27,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00030",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00031",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1321.32,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00031",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00032",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 330.92,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00032",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00033",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 567.34,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00033",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00034",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1332.64,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00034",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00035",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 199.94,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00035",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00036",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 238.2,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00036",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00037",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 297.18,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00037",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00038",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 485.78,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00038",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00039",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1493.31,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00039",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00040",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 286.99,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00040",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00041",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 931.87,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00041",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00042",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 217.97,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00042",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00043",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1369.48,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00043",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00044",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 448.45,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00044",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00045",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1202.77,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00045",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00046",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 253.76,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00046",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00047",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 764.49,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00047",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00048",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 675.62,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00048",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00049",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 463.15,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00049",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00050",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 702.2,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00050",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00051",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 731.52,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00051",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00052",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 189.81,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00052",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00053",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1457.21,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00053",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00054",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 349.51,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00054",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00055",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 642.98,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00055",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00056",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 703.75,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00056",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00057",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 333.62,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00057",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00058",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 919.27,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00058",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00059",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 198.89,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00059",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00060",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1445.87,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00060",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00061",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 941.15,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00061",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00062",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 285.44,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00062",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00063",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 974.75,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00063",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00064",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1409.89,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00064",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00065",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 449.39,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00065",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00066",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 556.32,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00066",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00067",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 752.43,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00067",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00068",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 221.1,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00068",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00069",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1407.9,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00069",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00070",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 629.95,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00070",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00071",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 964.12,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00071",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00072",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1247.6,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00072",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00073",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1415.72,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00073",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00074",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 495.84,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00074",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00075",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 400.96,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00075",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00076",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1369.36,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00076",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00077",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 704.53,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00077",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00078",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1184.14,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00078",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00079",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1142.9,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00079",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00080",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 223.84,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00080",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00081",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 872.91,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00081",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00082",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 295.87,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00082",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00083",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1360.52,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00083",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00084",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1196.56,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00084",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00085",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1313.16,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00085",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00086",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1336.35,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00086",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00087",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1227.08,
+        "employee_id": "E007",
+        "invoice_no": "INV-NOR-00087",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00088",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 488.19,
+        "employee_id": "E008",
+        "invoice_no": "INV-NOR-00088",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00089",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1323.59,
+        "employee_id": "E001",
+        "invoice_no": "INV-NOR-00089",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00090",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1246.89,
+        "employee_id": "E002",
+        "invoice_no": "INV-NOR-00090",
+        "expense_type": "餐饮"
+      }
+    },
+    {
+      "case_id": "NOR-00091",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 152.66,
+        "employee_id": "E003",
+        "invoice_no": "INV-NOR-00091",
+        "expense_type": "交通"
+      }
+    },
+    {
+      "case_id": "NOR-00092",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1312.81,
+        "employee_id": "E004",
+        "invoice_no": "INV-NOR-00092",
+        "expense_type": "办公"
+      }
+    },
+    {
+      "case_id": "NOR-00093",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1005.24,
+        "employee_id": "E005",
+        "invoice_no": "INV-NOR-00093",
+        "expense_type": "住宿"
+      }
+    },
+    {
+      "case_id": "NOR-00094",
+      "scenario": "clean",
+      "risk_type": "normal",
+      "expected_decision": "APPROVE",
+      "hard_violation": false,
+      "flexible_allowed": false,
+      "expected_fields": {
+        "amount": 1416.15,
+        "employee_id": "E006",
+        "invoice_no": "INV-NOR-00094",
+        "expense_type": "餐饮"
+      }
     }
   ]
 }

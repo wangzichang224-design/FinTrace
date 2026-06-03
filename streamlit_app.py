@@ -472,7 +472,7 @@ def render_case_detail(case: dict) -> None:
         for a in vis_artifacts:
             p = Path(a.get("path", ""))
             if p.exists():
-                st.image(str(p), caption=p.name, width=400)
+                st.image(str(p), caption=p.name, width=800)
 
     # ── 技术细节（折叠） ──
     with st.expander("🔬 查看技术细节（处理过程 / 规则命中 / 字段溯源）", expanded=False):
